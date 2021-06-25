@@ -2,7 +2,7 @@ import gzip
 import json
 from collections import namedtuple
 
-Result = namedtuple("Result", "query word kanji info conjugated negative formal conjugation")
+Result = namedtuple("Result", "query word kanji index info conjugated negative formal conjugation")
 Word = namedtuple("Word", "kanji kana pos gloss")
 Info = namedtuple("Info", "priority info")
 
@@ -42,7 +42,7 @@ class JDict:
             info = self.infos[self.words[id][kind][index][1]]
             conjugation = self.conjugations[cj]
             conjugated = cj != 0
-            yield Result(query, word, kanji, info, conjugated, neg, fml, conjugation)
+            yield Result(query, word, kanji, index, info, conjugated, neg, fml, conjugation)
 
     def lookup(self, query):
         yield from self.lookup_precise(query)

@@ -1,0 +1,69 @@
+
+body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 0;
+    touch-action: manipulation;
+}
+
+#preact-container {
+    position: relative;
+}
+
+#preact-root {
+    position: absolute;
+    /* transition: all 0.1s linear; */
+    display: none;
+    background-color: rgb(255, 251, 244);
+    border-radius: 0.5em;
+    box-shadow: 0em 1em 2em rgba(0, 0, 0, 0.2);
+    z-index: 2;
+}
+
+#highlight-root {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.top {
+    width: 100%;
+    height: 100%;
+}
+
+.top-scroll {
+    width: 100%;
+    height: 100%;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+
+.highlighter {
+    background-color: rgb(250, 238, 65);
+    border-radius: 50% 20% / 10% 40%;
+    z-index: 1;
+}
+
+.hint-container {
+    padding: 0.5em;
+}
+
+.hint-title {
+    font-size: 1.5em;
+}
+
+.hint-gloss {
+    color: #444;
+}
+
+.translation {
+    font-size: 1.5em;
+    padding: 0.5em;
+    color: #444;
+}
+
+#image-frame {
+    width: 400px;
+    height: 400px;
+    margin: 0;
+    padding: 0;
+}
