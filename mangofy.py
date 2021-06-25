@@ -127,12 +127,22 @@ def format_result(result):
     ks = list(format_info(k, v, result.kanji and i == result.index) for i,(k,v) in enumerate(result.word.kanji.items()))
     rs = list(format_info(k, v, not result.kanji and i == result.index) for i,(k,v) in enumerate(result.word.kana.items()))
     primary_score = next(v["score"] for v in itertools.chain(ks, rs) if v["primary"])
+    conjugation = ""
+
+    if result.conjugated:
+        if result.negative:
+            conjugation += "Negative "
+        if result.formal:
+            conjugation += "Formal "
+        conjugation += result.conjugation
+
     return {
         "query": result.query,
         "kanji": sorted(ks, key=lambda x: x["score"], reverse=True),
         "kana": sorted(rs, key=lambda x: x["score"], reverse=True),
         "gloss": result.word.gloss,
         "score": primary_score,
+        "conjugation": conjugation,
     }
 
 def loose_intersects(a, b, factor):
@@ -225,6 +235,7 @@ def add_cluster_translations(page_jp, page_en):
 def add_hints_to_paragraph(paragraph):
     text = paragraph["text"]
     words = paragraph["words"]
+    symbols = paragraph["symbols"]
 
     hints = []
 
@@ -232,18 +243,23 @@ def add_hints_to_paragraph(paragraph):
     word_ix = 0
     length = len(text)
     while begin < length:
-        while word_ix < len(words) and words[word_ix]["end"] <= begin:
-            word_ix += 1
-            continue
-
         best_result = None
         best_end = begin + 1
-        for word_end in range(word_ix+1, min(word_ix+6, len(words))):
-            segment = text[begin:word_end]
+        
+        begin_aabb = symbols[begin]["aabb"]
+        begin_y = (begin_aabb["min"][1] + begin_aabb["max"][1]) * 0.5
+
+        for end in range(begin + 1, min(begin + 10, length + 1)):
+            if end - 1 > begin:
+                end_aabb = symbols[end - 1]["aabb"]
+                end_y = end_aabb["min"][1]
+                if end_y < begin_y: break
+
+            segment = text[begin:end]
             result = list(jdict.lookup(segment))
             if result:
                 best_result = result
-                best_end = word_end
+                best_end = end
 
         if best_result:
             hint = {
@@ -253,20 +269,21 @@ def add_hints_to_paragraph(paragraph):
             }
             hints.append(hint)
         begin = best_end
-    
+
+
     paragraph["hints"] = hints
 
 def add_hints_to_page(page):
     for paragraph in page["paragraphs"]:
         add_hints_to_paragraph(paragraph)
     
-jp_page = detect_page_ocr("data/test.jpg", "jp")
-en_page = detect_page_ocr("data/test_en2.jpg", "en")
+jp_page = detect_page_ocr("data/jp_77.jpg", "jp")
+en_page = detect_page_ocr("data/en_77.jpg", "en")
 
 cluster_page_paragraphs(jp_page)
 cluster_page_paragraphs(en_page)
 add_cluster_translations(jp_page, en_page)
 
 add_hints_to_page(jp_page)
-with open("web_viewer/page1.json", "w", encoding="utf-8") as f:
+with open("web_viewer/data/page2.json", "w", encoding="utf-8") as f:
     json.dump(jp_page, f, indent=1, ensure_ascii=False)

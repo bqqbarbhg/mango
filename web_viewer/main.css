@@ -55,6 +55,12 @@ body {
     color: #444;
 }
 
+.hint-conjugation {
+    color: #777;
+    font-style: italic;
+    font-size: 0.8em;
+}
+
 .translation {
     font-size: 1.5em;
     padding: 0.5em;

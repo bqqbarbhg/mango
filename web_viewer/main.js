@@ -28,9 +28,12 @@ class Result extends Component {
             glossText += gloss
         }
 
+        let conjText = result.conjugation
+
         return h("div", { class: "hint-container" }, [
             h("div", { class: "hint-title" }, titleText),
             h("div", { class: "hint-gloss" }, glossText),
+            conjText != "" ? h("div", { class: "hint-conjugation" }, conjText) : null,
         ])
     }
 }
@@ -71,7 +74,7 @@ class Top extends Component {
 
     componentDidMount() {
         pageImage.addEventListener("click", this.onImageClick)
-        this.loadPage({ image: "data/page1.jpg", meta: "data/page1.json" })
+        this.loadPage({ image: "data/page2.jpg", meta: "data/page2.json" })
     }
 
     componentWillUnmount() {
