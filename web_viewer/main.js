@@ -122,7 +122,7 @@ class Top extends Component {
                             bestTarget = {
                                 x: (bestCluster.aabb.min[0] + bestCluster.aabb.max[0]) * 0.5,
                                 y: (bestCluster.aabb.min[1] + bestCluster.aabb.max[1]) * 0.5,
-                                width: bestCluster.aabb.max[0] - bestCluster.aabb.min[0],
+                                width: (bestCluster.aabb.max[0] - bestCluster.aabb.min[0]) * 0.5,
                                 visible: true,
                             }
                     } else {
@@ -137,7 +137,7 @@ class Top extends Component {
                             bestTarget = {
                                 x: (sym.aabb.min[0] + sym.aabb.max[0]) * 0.5,
                                 y: (sym.aabb.min[1] + sym.aabb.max[1]) * 0.5,
-                                width: sym.aabb.max[0] - sym.aabb.min[0],
+                                width: (sym.aabb.max[0] - sym.aabb.min[0]) * 0.5,
                                 visible: true,
                             }
                             bestDist = dist
@@ -311,12 +311,12 @@ function updateRootImp()
     let targetPos
     if (rootOnRight) {
         targetPos = {
-            x: rootTarget.x - elemSize.x - rootTarget.width,
+            x: rootTarget.x - elemSize.x * 1.05 - rootTarget.width,
             y: rootTarget.y - elemSize.y * 0.5,
         }
     } else {
         targetPos = {
-            x: rootTarget.x + rootTarget.width,
+            x: rootTarget.x + rootTarget.width + elemSize.x * 0.05,
             y: rootTarget.y - elemSize.y * 0.5,
         }
     }
