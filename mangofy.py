@@ -34,7 +34,7 @@ def detect_page_ocr(path, language):
     except FileNotFoundError:
         pass
 
-    print(f".. Processing OCR: {path} ({language})")
+    print(f".. Processing OCR: {path} ({language})", flush=True)
 
     from google.cloud import vision
     client = vision.ImageAnnotatorClient()
