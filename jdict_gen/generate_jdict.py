@@ -6,17 +6,24 @@ from collections import namedtuple
 import json
 import time
 import argparse
+import gzip
 
 parser = argparse.ArgumentParser(description="Generate jdict.json")
 parser.add_argument("--jmdict-path", help="Path to the JMDict to use")
-parser.add_argument("--conj-table-path", help="Path for directory containing conjunction csv files")
+parser.add_argument("--conj-table-path", help="Path for directory containing conjugation csv files")
 parser.add_argument("-o", help="Output filename")
 args = parser.parse_args()
 
 start = time.time()
 
-root = ET.parse(args.jmict_path)
+print(f"Parsing JMDict {args.jmdict_path}...", flush=True)
+if args.jmdict_path.endswith(".gz"):
+    with gzip.open(args.jmdict_path, "rb") as f:
+        root = ET.parse(f)
+else:
+    root = ET.parse(args.jmdict_path)
 
+print(f"Loading conjugation tables from {args.conj_table_path}...", flush=True)
 ct = conj.read_conj_tables(args.conj_table_path)
 
 def encode_base(id, kanji, index):
@@ -79,6 +86,8 @@ inv_pos_descs = { v: k for k,v in pos_descs.items() }
 counter = 0
 
 max_kr = 0
+
+print("Processing words, this will take a while (printing one '.' per 10k words)", flush=True)
 
 for id, entry in enumerate(root.iter("entry")):
     pos = entry.findtext("sense/pos") or "unclassified"
@@ -152,9 +161,16 @@ result = {
     "str_to_word": word_to_cdata,
 }
 
-with open(args.o, "w", encoding="utf-8") as f:
-    json.dump(result, f, ensure_ascii=False, indent=1)
+print(" Done!", flush=True)
+
+print(f"Writing the output JSON file at {args.o}...", flush=True)
+if args.o.endswith(".gz"):
+    with gzip.open(args.o, "wt", encoding="utf-8", compresslevel=9) as f:
+        json.dump(result, f, ensure_ascii=False, indent=1)
+else:
+    with open(args.o, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=1)
 
 end = time.time()
 
-print(f" Done in {end - start:.1f} seconds!")
+print(f"Finished in {end - start:.1f} seconds!", flush=True)

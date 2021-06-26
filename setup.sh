@@ -13,6 +13,4 @@ fi
 
 mkdir -p data
 curl http://ftp.edrdg.org/pub/Nihongo/JMdict_e.gz -o data/JMDict_e.gz
-gunzip data/JMDict_e.gz
-python3 jdict_gen/generate_jdict.py --jmdict-path data/JMDict_e --conj-table-path jdict_gen/tables -o data/jdict.json
-gzip -9 data/jdict.json
+$MANGO_PYTHON jdict_gen/generate_jdict.py --jmdict-path data/JMDict_e.gz --conj-table-path jdict_gen/tables -o data/jdict.json.gz
