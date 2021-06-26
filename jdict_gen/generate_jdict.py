@@ -1,14 +1,23 @@
+#!/usr/bin/env python3
+
 import xml.etree.ElementTree as ET
 import conj
 from collections import namedtuple
 import json
 import time
+import argparse
+
+parser = argparse.ArgumentParser(description="Generate jdict.json")
+parser.add_argument("--jmdict-path", help="Path to the JMDict to use")
+parser.add_argument("--conj-table-path", help="Path for directory containing conjunction csv files")
+parser.add_argument("-o", help="Output filename")
+args = parser.parse_args()
 
 start = time.time()
 
-root = ET.parse("data/JMDict_e")
+root = ET.parse(args.jmict_path)
 
-ct = conj.read_conj_tables("data")
+ct = conj.read_conj_tables(args.conj_table_path)
 
 def encode_base(id, kanji, index):
     assert 0 <= id < (1 << 18)
@@ -143,7 +152,7 @@ result = {
     "str_to_word": word_to_cdata,
 }
 
-with open("data/jdict.json", "w", encoding="utf-8") as f:
+with open(args.o, "w", encoding="utf-8") as f:
     json.dump(result, f, ensure_ascii=False, indent=1)
 
 end = time.time()
