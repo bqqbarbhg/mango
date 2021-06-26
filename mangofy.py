@@ -7,6 +7,9 @@ import itertools
 from io import BytesIO
 from PIL import Image
 import re
+import argparse
+import shutil
+import copy
 
 jdict = JDict("data/jdict.json.gz")
 
@@ -30,6 +33,8 @@ def detect_page_ocr(path, language):
             return json.load(f)
     except FileNotFoundError:
         pass
+
+    print(f".. Processing OCR: {path} ({language})")
 
     from google.cloud import vision
     client = vision.ImageAnnotatorClient()
@@ -91,9 +96,8 @@ def detect_page_ocr(path, language):
             '{}\nFor more info on error messages, check: '
             'https://cloud.google.com/apis/design/errors'.format(
                 response.error.message))
-    
+
     result = {
-        "image_path": path,
         "paragraphs": paragraphs,
         "resolution": resolution,
     }
@@ -184,7 +188,7 @@ def cluster_page_paragraphs(page):
                         break
             else:
                 break
-        clusters.append({ "paragraphs": cluster })
+        clusters.append({ "paragraphs": cluster, "translation": "" })
 
     for cluster in clusters:
         c_para = [paragraphs[ix] for ix in cluster["paragraphs"]]
@@ -276,14 +280,74 @@ def add_hints_to_paragraph(paragraph):
 def add_hints_to_page(page):
     for paragraph in page["paragraphs"]:
         add_hints_to_paragraph(paragraph)
+
+def process_page(jp_image, en_image, dst_path, opts):
+    ocr = opts.get("ocr", True)
+
+    if ocr:
+        jp_page = detect_page_ocr(jp_image, "jp")
+        add_hints_to_page(jp_page)
+
+        if en_image:
+            en_page = detect_page_ocr(en_image, "en")
+            cluster_page_paragraphs(jp_page)
+            cluster_page_paragraphs(en_page)
+            add_cluster_translations(jp_page, en_page)
+    else:
+        with Image.open(jp_image) as img:
+            resolution = img.size
+        jp_page = {
+            "paragraphs": [],
+            "clusters": [],
+            "resolution": resolution,
+        }
     
-jp_page = detect_page_ocr("data/jp_77.jpg", "jp")
-en_page = detect_page_ocr("data/en_77.jpg", "en")
+    shutil.copyfile(jp_image, dst_path + ".jpg")
 
-cluster_page_paragraphs(jp_page)
-cluster_page_paragraphs(en_page)
-add_cluster_translations(jp_page, en_page)
+    with open(dst_path + ".json", "w", encoding="utf-8") as f:
+        json.dump(jp_page, f, indent=1, ensure_ascii=False)
 
-add_hints_to_page(jp_page)
-with open("web_viewer/data/page2.json", "w", encoding="utf-8") as f:
-    json.dump(jp_page, f, indent=1, ensure_ascii=False)
+def replace_bracketed_number(text, offset):
+    def inner(m):
+        num_str = m.group(1)
+        fmt = f"{{:0{len(num_str)}d}}"
+        return fmt.format(offset + int(num_str))
+    return re.sub(r"<([0-9]+)>", inner, text)
+
+def expand_pages(desc):
+    old_pages = desc["pages"]
+    new_pages = []
+
+    for page in old_pages:
+        for offset in range(page.get("count", 1)):
+            new_page = copy.deepcopy(page)
+            if "count" in new_page:
+                del new_page["count"]
+            if "jp" in page:
+                new_page["jp"] = replace_bracketed_number(page["jp"], offset)
+            if "en" in page:
+                new_page["en"] = replace_bracketed_number(page["en"], offset)
+            new_pages.append(new_page)
+    desc["pages"] = new_pages
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Convert pages to a Mango-readable form")
+    parser.add_argument("desc", metavar="desc.json", help="Description file")
+    parser.add_argument("-o", metavar="out-dir/", help="Output path")
+    args = parser.parse_args()
+
+    os.makedirs(args.o, exist_ok=True)
+
+    desc_base = os.path.dirname(args.desc)
+
+    with open(args.desc, "r", encoding="utf-8") as f:
+        desc = json.load(f)
+        expand_pages(desc)
+
+        pages = desc["pages"]
+        for index, page in enumerate(pages):
+            print(f"Processing page {index+1}/{len(pages)}", flush=True)
+            dst_path = os.path.join(args.o, f"page{index+1:03d}")
+            jp_page = os.path.join(desc_base, page.get("jp", ""))
+            en_page = os.path.join(desc_base, page.get("en", ""))
+            process_page(jp_page, en_page, dst_path, page)

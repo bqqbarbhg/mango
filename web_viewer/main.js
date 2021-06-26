@@ -69,16 +69,32 @@ let rootTarget = { x: 0, y: 0, width: 0, visible: false }
 class Top extends Component {
     state = { page: null, hint: null, hintId: 0, translation: "" }
     loadToken = 0
-
+    currentPage = 0
     clickTime = 0
+    preloadImage = new Image()
+    lastGoodPage = null
 
     componentDidMount() {
+        const params = new URLSearchParams(window.location.search)
+        this.doc = params.get("doc")
+
         pageImage.addEventListener("click", this.onImageClick)
-        this.loadPage({ image: "data/page2.jpg", meta: "data/page2.json" })
+        window.addEventListener("hashchange", this.onHashChange)
+
+        let page = parseInt(window.location.hash.substring(1))
+        if (isNaN(page)) page = 1
+        this.loadPageIndex(page)
     }
 
     componentWillUnmount() {
         pageImage.removeEventListener("click", this.onImageClick)
+        window.removeEventListener("hashchange", this.onHashChange)
+    }
+
+    onHashChange = (e) => {
+        let page = parseInt(window.location.hash.substring(1))
+        if (isNaN(page)) page = 1
+        this.loadPageIndex(page)
     }
 
     onImageClick = (e) => {
@@ -107,12 +123,10 @@ class Top extends Component {
                 let dist = aabbDist(sym.aabb, pos)
                 if (dist < bestDist) {
                     let foundHint = null
-                    let useSymbol = false
 
                     if (doubleClick) {
                             bestDist = dist
                             bestPara = para
-                            useSymbol = true
                             for (const cluster of page.clusters) {
                                 if (cluster.paragraphs.includes(paraIndex)) {
                                     bestCluster = cluster
@@ -181,6 +195,18 @@ class Top extends Component {
             rootTarget.visible = false
             updateRoot()
             updateHighlights([])
+        } else if (doubleClick) {
+            const width = pageImage.clientWidth
+
+            if (pos.x < width * 0.25) {
+                if (this.currentPage > 1) {
+                    this.loadPageIndex(this.currentPage - 1)
+                }
+            } else if (pos.x > width * 0.75) {
+                this.loadPageIndex(this.currentPage + 1)
+            }
+
+            return
         }
 
         this.setState({
@@ -190,18 +216,46 @@ class Top extends Component {
         })
     }
 
-    loadPage(page) {
-        pageImage.src = page.image
+    loadPageIndex(pageIndex) {
+        pageIndex = pageIndex | 0
+        if (this.currentPage == pageIndex) return
+        this.currentPage = pageIndex
 
-        const token = ++this.loadToken
-        fetch(page.meta)
-            .then(r => r.json())
-            .then(page => this.onLoadMetadata(page, token))
+        history.pushState(null, null, "#" + pageIndex.toString());
+
+        let indexStr = pageIndex.toString().padStart(3, "0")
+        let baseName = `${this.doc}/page${indexStr}`
+        this.loadPageImp({ image: baseName + ".jpg", meta: baseName + ".json", index: pageIndex })
     }
 
-    onLoadMetadata(page, token) {
+    loadPageImp(pageInfo) {
+        pageImage.src = pageInfo.image
+
+        this.setState({ page: null })
+
+        const token = ++this.loadToken
+        fetch(pageInfo.meta)
+            .then(r => r.json())
+            .then(page => this.onLoadMetadata(page, token, pageInfo))
+            .catch(error => this.onLoadError(error))
+    }
+
+    onLoadError(error) {
+        if (this.lastGoodPage) {
+            this.loadPageIndex(this.lastGoodPage.index)
+        }
+    }
+
+    onLoadMetadata(page, token, pageInfo) {
         if (token != this.loadToken) return
 
+        // Preload the next image
+        {
+            let indexStr = (pageInfo.index + 1).toString().padStart(3, "0")
+            this.preloadImage.src = `${this.doc}/page${indexStr}.jpg`
+        }
+
+        this.lastGoodPage = pageInfo
         this.setState({ page: page })
     }
 
