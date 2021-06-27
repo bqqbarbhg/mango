@@ -72,12 +72,16 @@ body {
     padding: 0.5em;
 }
 
+.hint-selected {
+    background-color: rgb(241, 231, 213);
+}
+
 .hint-title {
     font-size: 1.5em;
 }
 
 .hint-gloss {
-    color: #444;
+    color: #333;
 }
 
 .hint-conjugation {
@@ -86,10 +90,53 @@ body {
     font-size: 0.8em;
 }
 
+.hint-label {
+    color: #000;
+    font-size: 0.7em;
+}
+
+.hint-text {
+    color: #333;
+}
+
 .translation {
     font-size: 1.5em;
     padding: 0.5em;
-    color: #444;
+    color: #333;
+}
+
+.wk-container {
+    padding-top: 0.5em;
+}
+
+.wk-span {
+    font-size: 0.7em;
+    color: #333;
+}
+
+.wk-tag-radical {
+    background-color: rgb(145, 171, 206);
+    border-radius: 10%;
+}
+
+.wk-tag-kanji {
+    background-color: rgb(226, 185, 161);
+    border-radius: 10%;
+}
+
+.wk-tag-vocabulary {
+    background-color: rgb(226, 161, 201);
+    border-radius: 10%;
+}
+
+.wk-tag-meaning {
+    background-color: rgb(171, 221, 179);
+    border-radius: 10%;
+}
+
+.wk-tag-reading {
+    background-color: rgb(219, 226, 161);
+    border-radius: 10%;
 }
 
 #image-frame {

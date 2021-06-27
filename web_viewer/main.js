@@ -1,5 +1,5 @@
 
-const { h, render, Component } = preact
+const { h, render, Component, createRef } = preact
 
 function Radical({ radical }) {
     return h("div", { class: "radical" },
@@ -16,8 +16,12 @@ function RadicalList({ radicals }) {
 
 class Result extends Component {
 
-    render({ result, expand }) {
+    onClick = (e) => {
+        const { onSelect, index } = this.props
+        onSelect(index)
+    }
 
+    render({ result, expand }) {
         let titleText = ""
 
         if (result.kanji.length > 0) {
@@ -36,26 +40,80 @@ class Result extends Component {
         let maxGloss = 50
 
         for (const gloss of result.gloss) {
-            if (glossText.length + gloss.length >= maxGloss && !expand) break
+            if (glossText && glossText.length + gloss.length >= maxGloss && !expand) break
             if (glossText != "") glossText += ", "
             glossText += gloss
         }
 
+        let kanjiText = ""
+        let kanaText = ""
+
+        let wkPart = []
+
+        if (expand) {
+            for (const kanji of result.kanji) {
+                if (kanjiText) kanjiText += ", "
+                kanjiText += kanji.text
+            }
+
+            for (const kana of result.kana) {
+                if (kanaText) kanaText += ", "
+                kanaText += kana.text
+            }
+
+            const wkLists = [
+                result.wk_meaning_mnemonic,
+                result.wk_meaning_hint,
+                result.wk_reading_mnemonic,
+                result.wk_reading_hint,
+            ]
+
+            for (const list of wkLists) {
+                if (!list) continue
+
+                wkPart.push(h("div", { class: "wk-container" },
+                    list.map(({ type, text }) => h("span", { class: `wk-span wk-tag-${type}` }, text))))
+            }
+        }
+
         let conjText = result.conjugation
 
-        return h("div", { class: "hint-container" }, [
+        let className = "hint-container"
+        if (expand) className += " hint-selected"
+
+        return h("div", { class: className, onClick: this.onClick }, [
             h("div", { class: "hint-title" }, titleText),
             result.radicals ? h(RadicalList, { radicals: result.radicals }) : null,
             h("div", { class: "hint-gloss" }, glossText),
-            conjText != "" ? h("div", { class: "hint-conjugation" }, conjText) : null,
+            conjText ? h("div", { class: "hint-conjugation" }, conjText) : null,
+            kanjiText ? h("div", null,
+                h("span", { class: "hint-label" }, "Writing: "),
+                h("span", { class: "hint-text" }, kanjiText)) : null,
+            kanaText ? h("div", null,
+                h("span", { class: "hint-label" }, "Reading: "),
+                h("span", { class: "hint-text" }, kanaText)) : null,
+            wkPart
         ])
     }
 }
 
 class Hint extends Component {
-    render({ hint }) {
+    state = { selectedIndex: -1 }
+
+    onSelect = (index) => {
+        this.setState({ selectedIndex: index })
+    }
+
+    render({ hint }, { selectedIndex }) {
         return h("div", {class: "top-scroll" },
-            h("div", null, hint.results.map(r => h(Result, { result: r }, null))),
+            h("div", null, hint.results.map((r, ix) =>
+                h(Result, {
+                    result: r,
+                    expand: selectedIndex == ix,
+                    key: ix,
+                    index: ix,
+                    onSelect: this.onSelect },
+                null))),
         )
     }
 }
@@ -583,9 +641,7 @@ function updateHighlights(rects) {
         extentX *= 1.3;
         extentY *= 1.3;
 
-        if (extentY < extentX) {
-            extentY = extentX
-        }
+        extentY = extentX = Math.max(extentX, extentY)
 
         elem.style.position = "absolute"
         elem.style.left = `${centerX - extentX}px`

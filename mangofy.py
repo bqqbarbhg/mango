@@ -319,40 +319,66 @@ def download_svg(url):
 
     return result
 
+def wk_kana(reading):
+    return {
+        "text": reading["reading"],
+        "primary": reading["primary"],
+        "score": 1,
+        "info": [],
+    }
+
+def wk_radical(id):
+    radical = wk_subjects[id]
+
+    image_url = ""
+    for image in radical["character_images"]:
+        content_type = image["content_type"]
+        inline_styles = image["metadata"].get("inline_styles", False)
+        if content_type == "image/svg+xml" and inline_styles:
+            image_url = image["url"]
+    
+    if image_url:
+        svg = download_svg(image_url)
+    else:
+        ch = radical["characters"]
+        svg = (
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 1000 1000\">"
+            "<defs><style>.c{font: 950px sans-serif; text-anchor: middle; dominant-baseline: ideographic;}</style></defs>"
+            f"<text x=\"500\" y=\"1000\" class=\"c\">{ch}</text></svg>")
+
+    return {
+        "name": radical["meanings"][0]["meaning"],
+        "image": "data:image/svg+xml;base64," + base64.standard_b64encode(svg.encode("utf-8")).decode("ascii"),
+    }
+
+def wk_body_text(text):
+    if not text: return None
+
+    result = []
+
+    begin = 0
+    for m in re.finditer(r"<(?P<tag>[a-z]+)>(?P<body>.*?)</(?P=tag)>", text):
+        if begin < m.start():
+            result.append({
+                "type": "text",
+                "text": text[begin:m.start()]
+            })
+        result.append({
+            "type": m.group("tag"),
+            "text": m.group("body"),
+        })
+        begin = m.end()
+
+    if begin < len(text):
+            result.append({
+                "type": "text",
+                "text": text[begin:]
+            })
+
+    return result if result else None
+
 def get_extra_hints(text):
     hints = []
-
-    def wk_kana(reading):
-        return {
-            "text": reading["reading"],
-            "primary": reading["primary"],
-            "score": 1,
-            "info": [],
-        }
-
-    def wk_radical(id):
-        radical = wk_subjects[id]
-
-        image_url = ""
-        for image in radical["character_images"]:
-            content_type = image["content_type"]
-            inline_styles = image["metadata"].get("inline_styles", False)
-            if content_type == "image/svg+xml" and inline_styles:
-                image_url = image["url"]
-        
-        if image_url:
-            svg = download_svg(image_url)
-        else:
-            ch = radical["characters"]
-            svg = (
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 1000 1000\">"
-                "<defs><style>.c{font: 950px sans-serif; text-anchor: middle; dominant-baseline: ideographic;}</style></defs>"
-                f"<text x=\"500\" y=\"1000\" class=\"c\">{ch}</text></svg>")
-
-        return {
-            "name": radical["meanings"][0]["meaning"],
-            "image": "data:image/svg+xml;base64," + base64.standard_b64encode(svg.encode("utf-8")).decode("ascii"),
-        }
 
     wk_kanji = wk_kanjis.get(text, "")
     if wk_kanji:
@@ -364,6 +390,10 @@ def get_extra_hints(text):
             "score": 1,
             "conjugation": "",
             "radicals": [wk_radical(id) for id in wk_kanji["component_subject_ids"]],
+            "wk_meaning_mnemonic": wk_body_text(wk_kanji.get("meaning_mnemonic", "")),
+            "wk_meaning_hint": wk_body_text(wk_kanji.get("meaning_hint", "")),
+            "wk_reading_mnemonic": wk_body_text(wk_kanji.get("reading_mnemonic", "")),
+            "wk_reading_hint": wk_body_text(wk_kanji.get("reading_hint", "")),
         }
         hints.append(hint)
     
@@ -381,8 +411,6 @@ def add_hints_to_paragraph(paragraph):
         best_result = None
         best_sym_end = sym_begin + 1
         best_segment = None
-
-        begin_aabb = symbols[sym_begin]["aabb"]
 
         for sym_end in range(sym_begin + 1, min(sym_begin + 10, length + 1)):
             text_begin = symbols[sym_begin]["begin"]
