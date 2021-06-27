@@ -183,6 +183,7 @@ class Top extends Component {
     dragSelectionEnd = false
     skipClick = false
     dragTouchId = null
+    dragTapSymbolIx = -1
 
     componentDidMount() {
         const params = new URLSearchParams(window.location.search)
@@ -335,6 +336,7 @@ class Top extends Component {
                 if (this.dragSelectionBegin || this.dragSelectionEnd) {
                     this.dragSelection = this.selection
                 }
+                this.dragTapSymbolIx = hit.symIx
                 return true
             }
         }
@@ -348,6 +350,10 @@ class Top extends Component {
         if (!this.dragSelection) return
 
         const hit = getNearestSymbol(page, pos)
+        if (!hit) {
+            this.dragTapSymbolIx = -1
+        }
+
         if (hit && hit.paraIx == this.dragSelection.paraIx) {
             const prevSelection = this.selection
             if (this.dragSelectionBegin && this.dragSelectionEnd) {
@@ -371,6 +377,7 @@ class Top extends Component {
             }
 
             if (this.selection.symBegin != prevSelection.symBegin || this.selection.symEnd != prevSelection.symEnd) {
+                this.dragTapSymbolIx = -1
                 const hint = getAltHint(page.paragraphs[hit.paraIx], this.selection.symBegin, this.selection.symEnd)
 
                 if (hint != this.state.hint) {
@@ -391,6 +398,32 @@ class Top extends Component {
     }
 
     dragEnd() {
+        const { page } = this.state
+
+        if (page && this.selection && this.dragTapSymbolIx >= 0) {
+            const symIx = this.dragTapSymbolIx
+            this.dragTapSymbolIx = -1
+
+            this.selection = {
+                paraIx: this.selection.paraIx,
+                symBegin: symIx,
+                symEnd: symIx + 1,
+            }
+
+            const hint = getAltHint(page.paragraphs[this.selection.paraIx], symIx, symIx + 1)
+            if (hint != this.state.hint) {
+                this.setState({
+                    hint: hint,
+                    hintId: (this.state.hintId + 1) % 4096,
+                    translation: "",
+                })
+            }
+
+            rootTarget = getSelectionTarget(page, this.selection)
+            updateHighlights(getSelectionRects(page, this.selection))
+            updateRoot()
+        }
+
         if (this.dragSelection != null) {
             this.clickTime = new Date().getTime()
         }

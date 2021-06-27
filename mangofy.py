@@ -403,6 +403,19 @@ def add_hints_to_paragraph(paragraph):
                 "results": extra + sorted((format_result(r) for r in best_result), key=lambda x: x["score"], reverse=True),
             }
             hints.append(hint)
+        else:
+            text_begin = symbols[sym_begin]["begin"]
+            text_end = symbols[sym_begin]["end"]
+            segment = text[text_begin:text_end]
+            extra = get_extra_hints(segment)
+            if extra:
+                hint = {
+                    "begin": sym_begin,
+                    "end": sym_begin + 1,
+                    "results": extra,
+                }
+                hints.append(hint)
+
         sym_begin = best_sym_end
 
     alt_hints = []
