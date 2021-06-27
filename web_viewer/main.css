@@ -23,6 +23,7 @@ body {
 #highlight-root {
     opacity: 0.5;
     pointer-events: none;
+    touch-action: none;
 }
 
 .top {
@@ -41,6 +42,30 @@ body {
     background-color: rgb(250, 238, 65);
     border-radius: 50% 20% / 10% 40%;
     z-index: 1;
+}
+
+.radical-list {
+    padding-bottom: 0.2em;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+}
+
+.radical {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-right: 0.4em;
+}
+
+.radical-image {
+    width: 1.5em;
+    opacity: 0.7;
+}
+
+.radical-text {
+    font-size: 0.6em;
+    opacity: 0.7;
 }
 
 .hint-container {

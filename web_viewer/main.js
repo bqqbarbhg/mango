@@ -1,6 +1,19 @@
 
 const { h, render, Component } = preact
 
+function Radical({ radical }) {
+    return h("div", { class: "radical" },
+        h("img", { class: "radical-image", src: radical.image }),
+        h("div", { class: "radical-text" }, radical.name)
+    )
+}
+
+function RadicalList({ radicals }) {
+    return h("div", { class: "radical-list" },
+        radicals.map(r => h(Radical, { radical: r }))
+    )
+}
+
 class Result extends Component {
 
     render({ result, expand }) {
@@ -32,6 +45,7 @@ class Result extends Component {
 
         return h("div", { class: "hint-container" }, [
             h("div", { class: "hint-title" }, titleText),
+            result.radicals ? h(RadicalList, { radicals: result.radicals }) : null,
             h("div", { class: "hint-gloss" }, glossText),
             conjText != "" ? h("div", { class: "hint-conjugation" }, conjText) : null,
         ])
@@ -41,7 +55,7 @@ class Result extends Component {
 class Hint extends Component {
     render({ hint }) {
         return h("div", {class: "top-scroll" },
-            h("div", null, hint.results.map(r => h(Result, { result: r }, null)))
+            h("div", null, hint.results.map(r => h(Result, { result: r }, null))),
         )
     }
 }
@@ -66,6 +80,96 @@ function aabbDist(aabb, pos) {
 
 let rootTarget = { x: 0, y: 0, width: 0, visible: false }
 
+function getNearestSymbol(page, pos, distance=20.0) {
+    let bestDist = distance*distance
+    let bestParaIndex = -1
+    let bestSymIndex = -1
+    let paraIndex = 0
+    for (const para of page.paragraphs) {
+        let symIndex = 0
+        for (const sym of para.symbols) {
+            let dist = aabbDist(sym.aabb, pos)
+            if (dist < bestDist) {
+                bestParaIndex = paraIndex
+                bestSymIndex = symIndex
+                bestDist = dist
+            }
+            symIndex += 1
+        }
+        paraIndex += 1
+    }
+
+    if (bestParaIndex < 0) return null
+    return { paraIx: bestParaIndex, symIx: bestSymIndex, distance: Math.sqrt(bestDist) }
+}
+
+function getCluster(page, paraIx) {
+    for (const cluster of page.clusters) {
+        if (cluster.paragraphs.includes(paraIx)) {
+            return cluster
+        }
+    }
+}
+
+function getHint(paragraph, symIx) {
+    for (const hint of paragraph.hints) {
+        if (symIx >= hint.begin && symIx < hint.end) {
+            return hint
+        }
+    }
+    return null
+}
+
+function getAltHint(paragraph, symBegin, symEnd) {
+    for (const hint of paragraph.alt_hints) {
+        if (symBegin == hint.begin && symEnd == hint.end) {
+            return hint
+        }
+    }
+    return null
+}
+
+function getClusterRects(page, cluster) {
+    let rects = []
+    for (const paraIx of cluster.paragraphs) {
+        for (const sym of page.paragraphs[paraIx].symbols) {
+            rects.push(sym.aabb)
+        }
+    }
+    return rects
+}
+
+function getSelectionRects(page, selection) {
+    let rects = []
+    const paragraph = page.paragraphs[selection.paraIx]
+    for (let i = selection.symBegin; i < selection.symEnd; i++) {
+        const sym = paragraph.symbols[i]
+        rects.push(sym.aabb)
+    }
+    return rects
+}
+
+function getSelectionTarget(page, selection) {
+    const paragraph = page.paragraphs[selection.paraIx]
+    let minX = +Infinity
+    let maxX = -Infinity
+    let minY = +Infinity
+    let maxY = -Infinity
+    for (let i = selection.symBegin; i < selection.symEnd; i++) {
+        const aabb = paragraph.symbols[i].aabb
+        minX = Math.min(minX, aabb.min[0])
+        maxX = Math.max(maxX, aabb.max[0])
+        minY = Math.min(minY, aabb.min[1])
+        maxY = Math.max(maxY, aabb.max[1])
+    }
+    return {
+        x: (minX + maxX) * 0.5,
+        y: (minY + maxY) * 0.5,
+        width: (maxX - minX) * 0.5,
+        visible: true,
+    }
+}
+
 class Top extends Component {
     state = { page: null, hint: null, hintId: 0, translation: "" }
     loadToken = 0
@@ -73,11 +177,24 @@ class Top extends Component {
     clickTime = 0
     preloadImage = new Image()
     lastGoodPage = null
+    selection = null
+    dragSelection = null
+    dragSelectionBegin = false
+    dragSelectionEnd = false
+    skipClick = false
+    dragTouchId = null
 
     componentDidMount() {
         const params = new URLSearchParams(window.location.search)
         this.doc = params.get("doc")
 
+        pageImage.addEventListener("mousedown", this.onImageMouseDown)
+        pageImage.addEventListener("mousemove", this.onImageMouseMove)
+        pageImage.addEventListener("mouseup", this.onImageMouseUp)
+        window.addEventListener("touchstart", this.onImageTouchStart, { passive: false })
+        window.addEventListener("touchmove", this.onImageTouchMove, { passive: false })
+        window.addEventListener("touchend", this.onImageTouchEnd, { passive: false })
+        window.addEventListener("touchcancel", this.onImageTouchEnd, { passive: false })
         pageImage.addEventListener("click", this.onImageClick)
         window.addEventListener("hashchange", this.onHashChange)
 
@@ -87,6 +204,13 @@ class Top extends Component {
     }
 
     componentWillUnmount() {
+        pageImage.removeEventListener("mousedown", this.onImageMouseDown)
+        pageImage.removeEventListener("mousemove", this.onImageMouseMove)
+        pageImage.removeEventListener("mouseup", this.onImageMouseUp)
+        window.removeEventListener("touchstart", this.onImageTouchStart)
+        window.removeEventListener("touchmove", this.onImageTouchMove)
+        window.removeEventListener("touchend", this.onImageTouchEnd)
+        window.removeEventListener("touchcancel", this.onImageTouchEnd)
         pageImage.removeEventListener("click", this.onImageClick)
         window.removeEventListener("hashchange", this.onHashChange)
     }
@@ -98,6 +222,11 @@ class Top extends Component {
     }
 
     onImageClick = (e) => {
+        if (this.skipClick) {
+            this.skipClick = false
+            return
+        }
+
         const { page } = this.state
         if (!page) return
 
@@ -110,111 +239,230 @@ class Top extends Component {
             y: e.offsetY,
         }
 
-        let bestDist = 20.0*20.0
-        let bestHint = null
-        let bestTarget = null
-        let bestPara = null
-        let bestCluster = null
+        const hit = getNearestSymbol(page, pos)
 
-        let paraIndex = 0
-        for (const para of page.paragraphs) {
-            let symIndex = 0
-            for (const sym of para.symbols) {
-                let dist = aabbDist(sym.aabb, pos)
-                if (dist < bestDist) {
-                    let foundHint = null
+        if (hit) {
+            if (doubleClick) {
+                const cluster = getCluster(page, hit.paraIx)
+                updateHighlights(getClusterRects(page, cluster))
+                this.selection = null
+                this.dragSelection = null
 
-                    if (doubleClick) {
-                            bestDist = dist
-                            bestPara = para
-                            for (const cluster of page.clusters) {
-                                if (cluster.paragraphs.includes(paraIndex)) {
-                                    bestCluster = cluster
-                                    break
-                                }
-                            }
-                            bestTarget = {
-                                x: (bestCluster.aabb.min[0] + bestCluster.aabb.max[0]) * 0.5,
-                                y: (bestCluster.aabb.min[1] + bestCluster.aabb.max[1]) * 0.5,
-                                width: (bestCluster.aabb.max[0] - bestCluster.aabb.min[0]) * 0.5,
-                                visible: true,
-                            }
-                    } else {
-                        for (const hint of para.hints) {
-                            if (symIndex >= hint.begin && symIndex < hint.end) {
-                                foundHint = hint
-                                break
-                            }
-                        }
-
-                        if (foundHint) {
-                            bestTarget = {
-                                x: (sym.aabb.min[0] + sym.aabb.max[0]) * 0.5,
-                                y: (sym.aabb.min[1] + sym.aabb.max[1]) * 0.5,
-                                width: (sym.aabb.max[0] - sym.aabb.min[0]) * 0.5,
-                                visible: true,
-                            }
-                            bestDist = dist
-                            bestHint = foundHint
-                            bestPara = para
-                        }
-                    }
+                rootTarget = {
+                    x: (cluster.aabb.min[0] + cluster.aabb.max[0]) * 0.5,
+                    y: (cluster.aabb.min[1] + cluster.aabb.max[1]) * 0.5,
+                    width: (cluster.aabb.max[0] - cluster.aabb.min[0]) * 0.5,
+                    visible: true,
                 }
-                symIndex += 1
+
+                this.setState({
+                    hint: null,
+                    hintId: (this.state.hintId + 1) % 4096,
+                    translation: cluster.translation,
+                })
+            } else {
+                const hint = getHint(page.paragraphs[hit.paraIx], hit.symIx)
+
+                if (hint) {
+                    this.selection = {
+                        paraIx: hit.paraIx,
+                        symBegin: hint.begin,
+                        symEnd: hint.end,
+                    }
+                    updateHighlights(getSelectionRects(page, this.selection))
+                    rootTarget = getSelectionTarget(page, this.selection)
+                    this.setState({
+                        hint: hint,
+                        hintId: (this.state.hintId + 1) % 4096,
+                        translation: "",
+                    })
+                } else {
+                    this.selection = {
+                        paraIx: hit.paraIx,
+                        symBegin: hit.symIx,
+                        symEnd: hit.symIx + 1,
+                    }
+                    updateHighlights(getSelectionRects(page, this.selection))
+                    rootTarget = getSelectionTarget(page, this.selection)
+                    this.setState({
+                        hint: null,
+                        hintId: (this.state.hintId + 1) % 4096,
+                        translation: "???",
+                    })
+                }
             }
-            paraIndex += 1
+        } else {
+            this.selection = null
+            rootTarget.visible = false
+            updateHighlights([])
+
+            if (doubleClick) {
+                const width = pageImage.clientWidth
+
+                if (pos.x < width * 0.25) {
+                    if (this.currentPage > 1) {
+                        this.loadPageIndex(this.currentPage - 1)
+                    }
+                } else if (pos.x > width * 0.75) {
+                    this.loadPageIndex(this.currentPage + 1)
+                }
+            }
+
+        }
+        updateRoot()
+    }
+
+    dragStart(pos) {
+        const { page } = this.state
+        if (!page) return false
+
+        let time = new Date().getTime()
+        let doubleClick = (time - this.clickTime < 200)
+        if (doubleClick) return false
+
+        if (this.selection) {
+            const hit = getNearestSymbol(page, pos)
+            if (hit && hit.paraIx == this.selection.paraIx
+                    && hit.symIx >= this.selection.symBegin
+                    && hit.symIx < this.selection.symEnd) {
+                if (this.selection.symEnd - this.selection.symBegin <= 3) {
+                    this.dragSelectionBegin = hit.symIx == this.selection.symBegin
+                    this.dragSelectionEnd = hit.symIx == this.selection.symEnd - 1
+                } else {
+                    this.dragSelectionBegin = hit.symIx <= this.selection.symBegin + 1
+                    this.dragSelectionEnd = hit.symIx >= this.selection.symEnd - 2
+                }
+                if (this.dragSelectionBegin || this.dragSelectionEnd) {
+                    this.dragSelection = this.selection
+                }
+                return true
+            }
         }
 
-        let translation = ""
+        return false
+    }
 
-        if (!doubleClick && bestHint) {
-            let rects = []
-            for (let i = bestHint.begin; i < bestHint.end; i++) {
-                const sym = bestPara.symbols[i]
-                rects.push(sym.aabb)
-            }
-            updateHighlights(rects)
+    dragMove(pos) {
+        const { page } = this.state
+        if (!page) return
+        if (!this.dragSelection) return
 
-            rootTarget = bestTarget
-            updateRoot()
-        } else if (doubleClick && bestCluster) {
-
-            let rects = []
-            for (const paraIx of bestCluster.paragraphs) {
-                for (const sym of page.paragraphs[paraIx].symbols) {
-                    rects.push(sym.aabb)
+        const hit = getNearestSymbol(page, pos)
+        if (hit && hit.paraIx == this.dragSelection.paraIx) {
+            const prevSelection = this.selection
+            if (this.dragSelectionBegin && this.dragSelectionEnd) {
+                this.selection = {
+                    paraIx: this.dragSelection.paraIx,
+                    symBegin: Math.min(hit.symIx, this.dragSelection.symBegin),
+                    symEnd: Math.max(hit.symIx + 1, this.dragSelection.symEnd),
+                }
+            } else if (this.dragSelectionBegin) {
+                this.selection = {
+                    paraIx: this.dragSelection.paraIx,
+                    symBegin: Math.min(hit.symIx, this.dragSelection.symEnd - 1),
+                    symEnd: this.dragSelection.symEnd,
+                }
+            } else if (this.dragSelectionEnd) {
+                this.selection = {
+                    paraIx: this.dragSelection.paraIx,
+                    symBegin: this.dragSelection.symBegin,
+                    symEnd: Math.max(hit.symIx + 1, this.dragSelection.symBegin + 1),
                 }
             }
-            updateHighlights(rects)
-            translation = bestCluster.translation
 
-            rootTarget = bestTarget
-            updateRoot()
+            if (this.selection.symBegin != prevSelection.symBegin || this.selection.symEnd != prevSelection.symEnd) {
+                const hint = getAltHint(page.paragraphs[hit.paraIx], this.selection.symBegin, this.selection.symEnd)
 
-        } else if (rootTarget.visible) {
-            rootTarget.visible = false
-            updateRoot()
-            updateHighlights([])
-        } else if (doubleClick) {
-            const width = pageImage.clientWidth
-
-            if (pos.x < width * 0.25) {
-                if (this.currentPage > 1) {
-                    this.loadPageIndex(this.currentPage - 1)
+                if (hint != this.state.hint) {
+                    this.setState({
+                        hint: hint,
+                        hintId: (this.state.hintId + 1) % 4096,
+                        translation: "",
+                    })
                 }
-            } else if (pos.x > width * 0.75) {
-                this.loadPageIndex(this.currentPage + 1)
-            }
 
+                rootTarget = getSelectionTarget(page, this.selection)
+                updateHighlights(getSelectionRects(page, this.selection))
+                updateRoot()
+            }
+        } else {
+            this.selection = this.dragSelection
+        }
+    }
+
+    dragEnd() {
+        if (this.dragSelection != null) {
+            this.clickTime = new Date().getTime()
+        }
+        this.dragSelection = null
+    }
+
+    onImageMouseDown = (e) => {
+        if (e.button != 0) return
+
+        if (this.dragStart({ x: e.offsetX, y: e.offsetY })) {
+            this.skipClick = true
+            e.preventDefault()
+            return false
+        }
+    }
+
+    onImageMouseMove = (e) => {
+        if ((e.buttons & 1) == 0) {
+            this.dragSelection = null
             return
         }
 
-        this.setState({
-            hint: bestHint,
-            hintId: (this.state.hintId + 1) % 4096,
-            translation: translation,
-        })
+        this.dragMove({ x: e.offsetX, y: e.offsetY })
+        e.preventDefault()
+        return false
     }
+
+    onImageMouseUp = (e) => {
+        const { page } = this.state
+        if (!page) return
+        if ((e.buttons & 1) != 0) return
+
+        this.dragEnd()
+        e.preventDefault()
+        return false
+    }
+
+    hackcount = 0
+
+    onImageTouchStart = (e) => {
+        if (this.dragTouchId !== null) return
+
+        for (let touch of e.changedTouches) {
+            if (this.dragStart({ x: touch.pageX, y: touch.pageY })) {
+                this.dragTouchId = touch.identifier
+                e.preventDefault()
+                return false
+            }
+        }
+    }
+
+    onImageTouchMove = (e) => {
+        for (let touch of e.changedTouches) {
+            if (touch.identifier === this.dragTouchId) {
+                this.dragMove({ x: touch.pageX, y: touch.pageY })
+                e.preventDefault()
+                return false
+            }
+        }
+    }
+
+    onImageTouchEnd = (e) => {
+        for (let touch of e.changedTouches) {
+            if (touch.identifier === this.dragTouchId) {
+                this.dragTouchId = null
+                this.dragEnd()
+                e.preventDefault()
+                return false
+            }
+        }
+    }
+
 
     loadPageIndex(pageIndex) {
         pageIndex = pageIndex | 0
@@ -232,6 +480,8 @@ class Top extends Component {
         pageImage.src = pageInfo.image
 
         this.setState({ page: null })
+        this.selection = null
+        this.dragSelection = null
 
         const token = ++this.loadToken
         fetch(pageInfo.meta)
@@ -278,7 +528,6 @@ let rootSize = { x: 0, y: 0 }
 let rootVisible = false
 let rootFontSize = 0
 
-let updateRootInterval = 0
 let rootUpdatesLeft = 0
 
 let rootOnRight = false
@@ -379,11 +628,11 @@ function updateRootImp()
 
     const deltaX = (rootPos.x - pos.x) / viewSize.x
     const deltaY = (rootPos.y - pos.y) / viewSize.y
-    const minDelta = 0.00001
+    const minDelta = 0.0000001
 
     const sizeDeltaX = (rootSize.x - elemSize.x) / viewSize.x
     const sizeDeltaY = (rootSize.y - elemSize.y) / viewSize.y
-    const minSizeDelta = 0.00001
+    const minSizeDelta = 0.001
 
     if (sizeDeltaX*sizeDeltaX + sizeDeltaY*sizeDeltaY > minSizeDelta*minSizeDelta) {
         rootSize.x = elemSize.x
@@ -404,18 +653,19 @@ function updateRootImp()
         preactRoot.style.transform = `translate(${pos.x}px, ${pos.y}px)`
     }
 
-    if (--rootUpdatesLeft == 0) {
-        clearInterval(updateRootInterval)
+    if (--rootUpdatesLeft > 0) {
+        window.requestAnimationFrame(updateRootImp)
         updateRootInterval = 0
     }
 }
 
 function updateRoot()
 {
-    rootUpdatesLeft = 100
-    if (updateRootInterval == 0) {
+    if (rootUpdatesLeft == 0) {
+        rootUpdatesLeft = 100
         updateRootImp()
-        updateRootInterval = setInterval(updateRootImp, 10)
+    } else {
+        rootUpdatesLeft = 100
     }
 }
 
