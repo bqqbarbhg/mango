@@ -302,6 +302,7 @@ def cleanup_translation(text):
     text = re.sub(r"(^|[.!?]\s*)([a-z])", lambda m: m.group(1) + m.group(2).upper(), text)
     text = re.sub(r"\bi\b", "I", text)
     text = re.sub(r"\b([a-z]+)\b", capitalize_nonword, text)
+    text = re.sub(r"'[A-Z]", lambda m: m.group(0).lower(), text)
     return text
 
 def add_cluster_translations(page_jp, page_en):
@@ -383,6 +384,9 @@ def wk_body_text(text):
     if not text: return None
 
     result = []
+
+    text = text.replace("<ja>", "")
+    text = text.replace("</ja>", "")
 
     begin = 0
     for m in re.finditer(r"<(?P<tag>[a-z]+)>(?P<body>.*?)</(?P=tag)>", text):
