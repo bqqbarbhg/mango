@@ -23,6 +23,8 @@ from open_ex import open_ex
 DescTask = namedtuple("DescTask", "path num_pages")
 PageTask = namedtuple("PageTask", "path page index desc")
 
+g_unsafe_write = False
+
 log_name = None
 def log(*values, **kwargs):
     global log_name
@@ -55,6 +57,7 @@ KATAKANA_TO_HIRAGANA = { ord(k): ord(h) for k,h in zip(KATAKANA, HIRAGANA) }
 
 wk_subjects = { }
 wk_kanjis = { }
+wk_vocabs = { }
 
 en_words = set()
 
@@ -199,10 +202,7 @@ def format_info(text, info, primary):
         "info": info.info,
     }
 
-def format_result(result):
-    ks = list(format_info(k, v, result.kanji and i == result.index) for i,(k,v) in enumerate(result.word.kanji.items()))
-    rs = list(format_info(k, v, not result.kanji and i == result.index) for i,(k,v) in enumerate(result.word.kana.items()))
-    primary_score = next(v["score"] for v in itertools.chain(ks, rs) if v["primary"])
+def format_conjugation(result):
     conjugation = ""
 
     if result.conjugated:
@@ -211,6 +211,13 @@ def format_result(result):
         if result.formal:
             conjugation += "Formal "
         conjugation += result.conjugation
+    
+    return conjugation
+
+def format_result(result):
+    ks = list(format_info(k, v, result.kanji and i == result.index) for i,(k,v) in enumerate(result.word.kanji.items()))
+    rs = list(format_info(k, v, not result.kanji and i == result.index) for i,(k,v) in enumerate(result.word.kana.items()))
+    primary_score = next(v["score"] for v in itertools.chain(ks, rs) if v["primary"])
 
     return {
         "query": result.query,
@@ -218,7 +225,7 @@ def format_result(result):
         "kana": sorted(rs, key=lambda x: x["score"], reverse=True),
         "gloss": result.word.gloss,
         "score": primary_score,
-        "conjugation": conjugation,
+        "conjugation": format_conjugation(result),
     }
 
 def loose_intersects(a, b, factor):
@@ -352,7 +359,7 @@ def wk_radical(id):
     radical = wk_subjects[id]
 
     image_url = ""
-    for image in radical["character_images"]:
+    for image in radical.get("character_images", []):
         content_type = image["content_type"]
         inline_styles = image["metadata"].get("inline_styles", False)
         if content_type == "image/svg+xml" and inline_styles:
@@ -398,10 +405,10 @@ def wk_body_text(text):
 
     return result if result else None
 
-def get_extra_hints(text):
+def get_extra_hints(text, results):
     hints = []
 
-    wk_kanji = wk_kanjis.get(text, "")
+    wk_kanji = wk_kanjis.get(text)
     if wk_kanji:
         hint = {
             "query": text,
@@ -417,7 +424,30 @@ def get_extra_hints(text):
             "wk_reading_hint": wk_body_text(wk_kanji.get("reading_hint", "")),
         }
         hints.append(hint)
-    
+
+    options = { text: "" }
+    for result in results:
+        if not result.kanji: continue
+        for kanji in result.word.kanji:
+            options[kanji] = format_conjugation(result)
+
+    for opt, conjugation in options.items():
+        for wk_vocab in wk_vocabs.get(opt, []):
+            hint = {
+                "query": opt,
+                "kanji": [{ "text": opt, "primary": True, "score": 1, "info": [] }],
+                "kana": [wk_kana(r) for r in wk_vocab["readings"]],
+                "gloss": [m["meaning"].lower() for m in wk_vocab["meanings"]],
+                "score": 1,
+                "conjugation": conjugation,
+                "radicals": [wk_radical(id) for id in wk_vocab.get("component_subject_ids", [])],
+                "wk_meaning_mnemonic": wk_body_text(wk_vocab.get("meaning_mnemonic", "")),
+                "wk_meaning_hint": wk_body_text(wk_vocab.get("meaning_hint", "")),
+                "wk_reading_mnemonic": wk_body_text(wk_vocab.get("reading_mnemonic", "")),
+                "wk_reading_hint": wk_body_text(wk_vocab.get("reading_hint", "")),
+            }
+            hints.append(hint)
+
     return hints
 
 def add_hints_to_paragraph(paragraph):
@@ -445,7 +475,7 @@ def add_hints_to_paragraph(paragraph):
                 best_segment = segment
 
         if best_result:
-            extra = get_extra_hints(best_segment)
+            extra = get_extra_hints(best_segment, best_result)
             hint = {
                 "begin": sym_begin,
                 "end": best_sym_end,
@@ -456,7 +486,7 @@ def add_hints_to_paragraph(paragraph):
             text_begin = symbols[sym_begin]["begin"]
             text_end = symbols[sym_begin]["end"]
             segment = text[text_begin:text_end]
-            extra = get_extra_hints(segment)
+            extra = get_extra_hints(segment, [])
             if extra:
                 hint = {
                     "begin": sym_begin,
@@ -477,7 +507,7 @@ def add_hints_to_paragraph(paragraph):
             segment = segment.translate(KATAKANA_TO_HIRAGANA)
             if len(segment) > 1 or (len(segment) == 1 and segment[0] not in HIRAGANA):
                 result = list(jdict.lookup(segment))
-                extra = get_extra_hints(segment)
+                extra = get_extra_hints(segment, result)
                 if result:
                     hint = {
                         "begin": sym_begin,
@@ -532,7 +562,8 @@ def process_page(jp_image, en_image, dst_path, opts):
         log(f"Copying image: {jp_image} -> {dst_image}")
         shutil.copyfile(jp_image, dst_image)
 
-    with open_ex(dst_path + ".json", "wt", encoding="utf-8") as f:
+    with open_ex(dst_path + ".json", "wt", encoding="utf-8",
+            atomic_write=not g_unsafe_write) as f:
         json.dump(jp_page, f, indent=1, ensure_ascii=False)
 
 def replace_bracketed_number(text, offset):
@@ -560,6 +591,9 @@ def expand_pages(desc):
 
 def initialize(args):
     global jdict
+    global g_unsafe_write
+
+    g_unsafe_write = args.unsafe_write
 
     jdict = JDict(args.jdict)
     log(f"Loaded {len(jdict.words)} Japanese words")
@@ -586,6 +620,8 @@ def initialize(args):
                 wk_subjects[subject["id"]] = data
                 if subject["object"] == "kanji":
                     wk_kanjis[data["characters"]] = data
+                elif subject["object"] == "vocabulary":
+                    wk_vocabs.setdefault(data["characters"], []).append(data)
 
 def process_page_task(page_task):
     page = page_task.page
@@ -611,6 +647,7 @@ if __name__ == "__main__":
     parser.add_argument("--en-dicts", nargs="+", action="append", help="English word list files")
     parser.add_argument("--wanikani", help="Wanikani subject file")
     parser.add_argument("--threads", type=int, default=1, help="Number of threads to use")
+    parser.add_argument("--unsafe-write", action="store_true", help="Write results unsafely")
 
     args = parser.parse_args()
 
