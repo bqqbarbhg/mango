@@ -15,14 +15,30 @@ import glob
 import gzip
 import requests
 import base64
+import multiprocessing
+import hashlib
+from collections import namedtuple
+from open_ex import open_ex
 
-jdict = JDict("data/jdict.json.gz")
+DescTask = namedtuple("DescTask", "path num_pages")
+PageTask = namedtuple("PageTask", "path page index desc")
 
-def open_gz(path):
-    if path.endswith(".gz"):
-        return gzip.open(path, "rb")
+log_name = None
+def log(*values, **kwargs):
+    global log_name
+    if log_name is None:
+        if not multiprocessing.parent_process():
+            log_name = ""
+        else:
+            index = multiprocessing.current_process().name.split("-")[-1].rjust(2, "0")
+            log_name = f"j{index}>"
+
+    if log_name:
+        print(log_name, *values, flush=True, **kwargs)
     else:
-        return open(path, "rb")
+        print(*values, flush=True, **kwargs)
+
+jdict = None
 
 HIRAGANA = (
     "ぁあぃいぅうぇえぉおかがきぎくぐけげこごさざしじすず"
@@ -68,20 +84,23 @@ def format_break(line_break, BreakType):
 def detect_page_ocr(path, language):
     """Detects document features in an image."""
 
-    tmp_path = os.path.join("temp", "ocr02", path) + ".json"
+    with io.open(path, 'rb') as image_file:
+        content = image_file.read()
+    
+    content_hash = hashlib.sha256(content).hexdigest()
+
+    tmp_name = f"{content_hash}.json.gz"
+    tmp_path = os.path.join("temp", "ocr03", tmp_name)
     try:
-        with open(tmp_path, "rb") as f:
+        with open_ex(tmp_path, "rb") as f:
             return json.load(f)
     except FileNotFoundError:
         pass
 
-    print(f".. Processing OCR: {path} ({language})", flush=True)
+    log(f".. Processing OCR: {path} ({language})")
 
     from google.cloud import vision
     client = vision.ImageAnnotatorClient()
-
-    with io.open(path, 'rb') as image_file:
-        content = image_file.read()
 
     image = vision.Image(content=content)
 
@@ -149,15 +168,17 @@ def detect_page_ocr(path, language):
                 response.error.message))
 
     result = {
+        "source": path,
+        "language": language,
         "paragraphs": paragraphs,
         "resolution": resolution,
     }
 
     os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
-    with open(tmp_path, "w", encoding="utf-8") as f:
+    with open_ex(tmp_path, "wt", encoding="utf-8") as f:
         json.dump(result, f, indent=1, ensure_ascii=False)
 
-    with open(tmp_path, "rb") as f:
+    with open_ex(tmp_path, "rb") as f:
         return json.load(f)
 
 prio_score = {
@@ -308,13 +329,13 @@ def download_svg(url):
     except FileNotFoundError:
         pass
 
-    print(f"Downloading {url}", flush=True)
+    log(f"Downloading {url}")
     r = requests.get(url)
     result = r.text
     svg_cache[url] = result
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    with open_ex(path, "wt", encoding="utf-8") as f:
         f.write(result)
 
     return result
@@ -491,6 +512,12 @@ def process_page(jp_image, en_image, dst_path, opts):
             cluster_page_paragraphs(jp_page)
             cluster_page_paragraphs(en_page)
             add_cluster_translations(jp_page, en_page)
+
+        jp_page = {
+            "paragraphs": jp_page["paragraphs"],
+            "clusters": jp_page["clusters"],
+            "resolution": jp_page["resolution"],
+        }
     else:
         with Image.open(jp_image) as img:
             resolution = img.size
@@ -499,10 +526,13 @@ def process_page(jp_image, en_image, dst_path, opts):
             "clusters": [],
             "resolution": resolution,
         }
-    
-    shutil.copyfile(jp_image, dst_path + ".jpg")
 
-    with open(dst_path + ".json", "w", encoding="utf-8") as f:
+    dst_image = dst_path + ".jpg"
+    if not os.path.exists(dst_image) or os.stat(jp_image).st_mtime > os.stat(dst_image).st_mtime:
+        log(f"Copying image: {jp_image} -> {dst_image}")
+        shutil.copyfile(jp_image, dst_image)
+
+    with open_ex(dst_path + ".json", "wt", encoding="utf-8") as f:
         json.dump(jp_page, f, indent=1, ensure_ascii=False)
 
 def replace_bracketed_number(text, offset):
@@ -528,45 +558,88 @@ def expand_pages(desc):
             new_pages.append(new_page)
     desc["pages"] = new_pages
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert pages to a Mango-readable form")
-    parser.add_argument("desc", metavar="desc.json", help="Description file")
-    parser.add_argument("-o", metavar="out-dir/", help="Output path")
-    parser.add_argument("--range", metavar="begin:end", help="Process a range of pages")
-    parser.add_argument("--en-dicts", nargs="+", action="append", help="English word list files")
-    parser.add_argument("--wanikani", help="Wanikani subject file")
+def initialize(args):
+    global jdict
 
-    args = parser.parse_args()
-
-    os.makedirs(args.o, exist_ok=True)
-
-    desc_base = os.path.dirname(args.desc)
+    jdict = JDict(args.jdict)
+    log(f"Loaded {len(jdict.words)} Japanese words")
 
     uppercase = set(string.ascii_uppercase)
     for pat in itertools.chain(*args.en_dicts):
         for path in glob.glob(pat):
-            with open(path, "r", encoding="utf-8") as f:
+            with open_ex(path, "rt", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line: continue
                     if line[0] in uppercase: continue
                     en_words.add(line)
 
-    print(f"Loaded {len(jdict.words)} Japanese words", flush=True)
-
     if en_words:
-        print(f"Loaded {len(en_words)} English words", flush=True)
-    
+        log(f"Loaded {len(en_words)} English words")
+
     if args.wanikani:
-        with open_gz(args.wanikani) as f:
+        with open_ex(args.wanikani, "rb") as f:
             wanikani_subjects = json.load(f)["subjects"]
-            print(f"Loaded {len(wanikani_subjects)} WaniKani subjects", flush=True)
+            log(f"Loaded {len(wanikani_subjects)} WaniKani subjects")
             for subject in wanikani_subjects:
                 data = subject["data"]
                 wk_subjects[subject["id"]] = data
                 if subject["object"] == "kanji":
                     wk_kanjis[data["characters"]] = data
 
+def process_page_task(page_task):
+    page = page_task.page
+    index = page_task.index
+    path = page_task.path
+    num_pages = page_task.desc.num_pages
+    desc_base = page_task.desc.path
+
+    log(f"Processing page {index+1}/{num_pages}")
+    dst_path = os.path.join(path, f"page{index+1:03d}")
+    jp_page = os.path.join(desc_base, page.get("jp", ""))
+    en_page = os.path.join(desc_base, page.get("en", ""))
+    process_page(jp_page, en_page, dst_path, page)
+
+    return page_task
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Convert pages to a Mango-readable form")
+    parser.add_argument("desc", metavar="desc.json", help="Description file")
+    parser.add_argument("-o", metavar="out-dir/", help="Output path")
+    parser.add_argument("--range", metavar="begin:end", help="Process a range of pages")
+    parser.add_argument("--jdict", help="Japanese dictionary .json")
+    parser.add_argument("--en-dicts", nargs="+", action="append", help="English word list files")
+    parser.add_argument("--wanikani", help="Wanikani subject file")
+    parser.add_argument("--threads", type=int, default=1, help="Number of threads to use")
+
+    args = parser.parse_args()
+
+    if not args.jdict:
+        for opt in ["data/jdict.json.gz", "data/jdict.json"]:
+            if os.path.exists(opt):
+                log(f"Autodetected: --jdict {opt}")
+                args.jdict = opt
+                break
+
+    if not args.en_dicts:
+        if os.path.exists("data/english_dicts"):
+            log(f"Autodetected: --en-dicts data/english_dicts/*")
+            args.en_dicts = [["data/english_dicts/*"]]
+
+    if not args.wanikani:
+        for opt in ["data/wanikani_subjects.json.gz", "data/wanikani_subjects.json"]:
+            if os.path.exists(opt):
+                log(f"Autodetected: --wanikani {opt}")
+                args.wanikani = opt
+                break
+    
+    args.threads = min(args.threads, 60)
+
+    os.makedirs(args.o, exist_ok=True)
+
+    tasks = []
+
+    desc_base = os.path.dirname(args.desc)
     with open(args.desc, "r", encoding="utf-8") as f:
         desc = json.load(f)
         expand_pages(desc)
@@ -584,12 +657,18 @@ if __name__ == "__main__":
                     end = int(s_end) - 1
             else:
                 end = begin = int(args.range) - 1
+        
+        desc_task = DescTask(desc_base, len(pages))
 
         for index, page in enumerate(pages):
             if not (begin <= index <= end): continue
+            tasks.append(PageTask(args.o, page, index, desc_task))
 
-            print(f"Processing page {index+1}/{len(pages)}", flush=True)
-            dst_path = os.path.join(args.o, f"page{index+1:03d}")
-            jp_page = os.path.join(desc_base, page.get("jp", ""))
-            en_page = os.path.join(desc_base, page.get("en", ""))
-            process_page(jp_page, en_page, dst_path, page)
+    if args.threads > 1:
+        with multiprocessing.Pool(args.threads, initialize, (args,)) as pool:
+            for task in pool.imap_unordered(process_page_task, tasks):
+                log(f"Finished page {task.index+1}/{task.desc.num_pages}")
+    else:
+        initialize(args)
+        for task in tasks:
+            process_page_task(task)
