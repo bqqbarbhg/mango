@@ -112,10 +112,12 @@ body {
 .wk-span {
     font-size: 0.7em;
     color: #333;
+    padding: 0.1em 0.1em;
+    margin: -0.1em -0.08em;
 }
 
 .wk-tag-radical {
-    background-color: rgb(145, 171, 206);
+    background-color: rgb(192, 205, 223);
     border-radius: 10%;
 }
 
