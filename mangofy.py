@@ -372,8 +372,8 @@ def wk_radical(id):
         ch = radical["characters"]
         svg = (
             "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 1000 1000\">"
-            "<defs><style>.c{font: 950px sans-serif; text-anchor: middle; dominant-baseline: ideographic;}</style></defs>"
-            f"<text x=\"500\" y=\"1000\" class=\"c\">{ch}</text></svg>")
+            "<defs><style>.c{font: 950px sans-serif; text-anchor: middle; }</style></defs>"
+            f"<text x=\"500\" y=\"800\" class=\"c\">{ch}</text></svg>")
 
     return {
         "name": radical["meanings"][0]["meaning"],
