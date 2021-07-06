@@ -6,6 +6,8 @@ import glob
 import os
 import multiprocessing
 from collections import namedtuple
+from open_ex import open_ex
+import json
 
 def enumerate_crops(array, crop_size):
     arr_size = array.shape
@@ -123,7 +125,9 @@ def match_images(img_a, img_b):
 
     error = error / (crop_size[0]*crop_size[1]) / (255*255)
     scale = (size[0] / res_b[0], size[1] / res_b[1])
-    return error, (size, offset)
+    offset = ((offset[0] - crop_rect[0]) / size[0], (offset[1] - crop_rect[1]) / size[1])
+
+    return error, (scale, offset)
 
 def compare_images(path_jp, path_en):
     with Image.open(path_jp) as img_a:
@@ -167,9 +171,11 @@ def main(args):
 
     def rel(path):
         return os.path.relpath(path, args.base,)
+    
+    pages = []
 
     en_base = 0
-    for jp_src, jp_tmp in zip(files_jp, resized_jp):
+    for index, (jp_src, jp_tmp) in enumerate(zip(files_jp, resized_jp)):
         best_err = args.error_limit
         best_index = -1
         best_transform = None
@@ -188,26 +194,65 @@ def main(args):
                     best_transform = transform
                     if err < args.sure_limit: break
 
-        print(best_transform)
-        
         if best_index >= 0:
             en_src = files_en[best_index]
-            print(rel(jp_src), rel(en_src), best_err)
+            en_tmp = resized_en[best_index]
+            print(rel(jp_src), rel(en_src))
+
+            scale, offset = best_transform
+
+            pages.append({
+                "jp": rel(jp_src),
+                "en": rel(en_src),
+                "transform": {
+                    "scale": scale,
+                    "offset": offset,
+                }
+            })
+
+            with Image.open(jp_tmp) as img_jp:
+                with Image.open(en_tmp) as img_en:
+                    size_jp = img_jp.size
+                    size_en = (int(img_en.size[0] * scale[0] * 0.5), int(img_en.size[1] * scale[1] * 0.5))
+                    img_en = img_en.resize(size_en)
+                    offset_en = (int(size_en[0] * offset[0]), int(size_en[1] * offset[1]))
+                    crop = (offset_en[0], offset_en[1], offset_en[0]+size_jp[0], offset_en[1]+size_jp[1])
+                    img_match = Image.blend(img_jp, img_en.crop(crop), alpha=0.5)
+                    path = os.path.join(temp_dir, f"match_{index:03}.png")
+                    img_match.save(path)
+
 
             en_base = best_index
         else:
             print(rel(jp_src))
+
+            pages.append({
+                "jp": rel(jp_src),
+            })
+
+    output = os.path.join(args.base, args.o)
+
+    desc = { }
+    if os.path.exists(output):
+        with open_ex(output, "rt") as f:
+            desc = json.load(f)
+
+    desc["pages"] = pages
+
+    with open_ex(output, "wt") as f:
+        json.dump(desc, f, indent=2, ensure_ascii=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert pages to a Mango-readable form")
     parser.add_argument("--base", metavar="dir/", help="Base directory")
     parser.add_argument("--jp", default="jp/*", metavar="jp/*.jpg", help="Japanese source pages")
     parser.add_argument("--en", default="en/*", metavar="en/*.jpg", help="English source pages")
+    parser.add_argument("-o", default="mango-desc.json", metavar="desc.json", help="Description file to write")
     parser.add_argument("--threads", type=int, default=1, metavar="num", help="Number of threads to use")
     parser.add_argument("--skip-resize", action="store_true", help="Use cached resized images")
     parser.add_argument("--sure-limit", type=float, default=0.025, help="Limit of error that is sure to be the same")
     parser.add_argument("--error-limit", type=float, default=0.1, help="Maximum error to accept a page")
-    args = parser.parse_args()
+    args = parser.parse_args(r"--base W:\Mango-Content\Source\Nagatoro\Vol-1\ --skip-resize --threads 16 --sure-limit 0.06".split())
 
     mp_queue = multiprocessing.Queue(args.threads)
 

@@ -26,6 +26,9 @@ class _FileEx:
         
         open_kwargs = { k: v for k,v in kwargs.items() if k in open_kws }
 
+        if mode.endswith("t") and "encoding" not in open_kwargs:
+            open_kwargs["encoding"] = "utf-8"
+
         if atomic_write and mode in ("wb", "wt"):
             self.atomic_write = True
             # Try to generate random names until we can succesfully open one
