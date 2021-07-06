@@ -284,8 +284,16 @@ def paragraph_mid_y(paragraph):
 
 def normalize_aabb(aabb, resolution):
     return {
-        "min": (aabb["min"][0] / resolution[0], aabb["min"][1] / resolution[1]),
-        "max": (aabb["max"][0] / resolution[0], aabb["max"][1] / resolution[1]),
+        "min": (aabb["min"][0] / resolution[1], aabb["min"][1] / resolution[1]),
+        "max": (aabb["max"][0] / resolution[1], aabb["max"][1] / resolution[1]),
+    }
+
+def transform_aabb(aabb, transform):
+    scale = transform["scale"]
+    offset = transform["offset"]
+    return {
+        "min": ((aabb["min"][0] + offset[0]) * scale[0], (aabb["min"][1] + offset[1]) * scale[1]),
+        "max": ((aabb["max"][0] + offset[0]) * scale[0], (aabb["max"][1] + offset[1]) * scale[1]),
     }
 
 def capitalize_nonword(m):
@@ -305,7 +313,7 @@ def cleanup_translation(text):
     text = re.sub(r"'[A-Z]", lambda m: m.group(0).lower(), text)
     return text
 
-def add_cluster_translations(page_jp, page_en):
+def add_cluster_translations(page_jp, page_en, en_transform):
     for cluster_jp in page_jp["clusters"]:
         en_paragraphs = []
 
@@ -313,6 +321,7 @@ def add_cluster_translations(page_jp, page_en):
             for jp_ix, en_ix in itertools.product(cluster_jp["paragraphs"], cluster_en["paragraphs"]):
                 jp_aabb = normalize_aabb(page_jp["paragraphs"][jp_ix]["aabb"], page_jp["resolution"])
                 en_aabb = normalize_aabb(page_en["paragraphs"][en_ix]["aabb"], page_en["resolution"])
+                en_aabb = transform_aabb(en_aabb, en_transform)
                 if loose_intersects(jp_aabb, en_aabb, 1.2):
                     break
             else:
@@ -534,18 +543,18 @@ def add_hints_to_page(page):
     for paragraph in page["paragraphs"]:
         add_hints_to_paragraph(paragraph)
 
-def process_page(jp_image, en_image, dst_path, opts):
+def process_page(jp_image, en_image, en_transform, dst_path, opts):
     ocr = opts.get("ocr", True)
 
     if ocr:
         jp_page = detect_page_ocr(jp_image, "jp")
         add_hints_to_page(jp_page)
+        cluster_page_paragraphs(jp_page)
 
         if en_image:
             en_page = detect_page_ocr(en_image, "en")
-            cluster_page_paragraphs(jp_page)
             cluster_page_paragraphs(en_page)
-            add_cluster_translations(jp_page, en_page)
+            add_cluster_translations(jp_page, en_page, en_transform)
 
         jp_page = {
             "paragraphs": jp_page["paragraphs"],
@@ -637,8 +646,10 @@ def process_page_task(page_task):
     log(f"Processing page {index+1}/{num_pages}")
     dst_path = os.path.join(path, f"page{index+1:03d}")
     jp_page = os.path.join(desc_base, page.get("jp", ""))
-    en_page = os.path.join(desc_base, page.get("en", ""))
-    process_page(jp_page, en_page, dst_path, page)
+    en_page = page.get("en", "")
+    if en_page: en_page = os.path.join(desc_base, en_page)
+    en_transform = page.get("transform", { "scale": (1,1), "offset": (0,0) })
+    process_page(jp_page, en_page, en_transform, dst_path, page)
 
     return page_task
 

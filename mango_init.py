@@ -125,7 +125,7 @@ def match_images(img_a, img_b):
 
     error = error / (crop_size[0]*crop_size[1]) / (255*255)
     scale = (size[0] / res_b[0], size[1] / res_b[1])
-    offset = ((offset[0] - crop_rect[0]) / size[0], (offset[1] - crop_rect[1]) / size[1])
+    offset = (-(offset[0] - crop_rect[0]) / size[0], -(offset[1] - crop_rect[1]) / size[1])
 
     return error, (scale, offset)
 
@@ -215,7 +215,7 @@ def main(args):
                     size_jp = img_jp.size
                     size_en = (int(img_en.size[0] * scale[0] * 0.5), int(img_en.size[1] * scale[1] * 0.5))
                     img_en = img_en.resize(size_en)
-                    offset_en = (int(size_en[0] * offset[0]), int(size_en[1] * offset[1]))
+                    offset_en = (int(size_en[0] * -offset[0]), int(size_en[1] * -offset[1]))
                     crop = (offset_en[0], offset_en[1], offset_en[0]+size_jp[0], offset_en[1]+size_jp[1])
                     img_match = Image.blend(img_jp, img_en.crop(crop), alpha=0.5)
                     path = os.path.join(temp_dir, f"match_{index:03}.png")
