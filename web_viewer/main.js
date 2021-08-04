@@ -1,5 +1,6 @@
 
 const { h, render, Component, createRef } = preact
+const { h: k, render: kaikuRender, createState } = kaiku
 
 function Radical({ radical }) {
     return h("div", { class: "radical" },
@@ -612,7 +613,37 @@ class Top extends Component {
 const highlightRoot = document.getElementById("highlight-root")
 const preactRoot = document.getElementById("preact-root")
 
-let highlightElems = []
+function HighlightRect({ rect })
+{
+    let centerX = (rect.min[0] + rect.max[0]) * 0.5
+    let centerY = (rect.min[1] + rect.max[1]) * 0.5
+    let extentX = (rect.max[0] - rect.min[0]) * 0.5
+    let extentY = (rect.max[1] - rect.min[1]) * 0.5
+
+    extentX *= 1.3;
+    extentY *= 1.3;
+
+    extentY = extentX = Math.max(extentX, extentY)
+
+    return k("div", {
+        className: "highlighter",
+        style: {
+            position: "absolute",
+            left: `${centerX - extentX}px`,
+            top: `${centerY - extentY}px`,
+            width: `${extentX * 2}px`,
+            height: `${extentY * 2}px`,
+        },
+    })
+}
+
+function HighlightTop()
+{
+    return k("div", { }, highlightState.rects.map(rect => k(HighlightRect, { rect })))
+}
+
+const highlightState = createState({ rects: [] })
+kaikuRender(k(HighlightTop), highlightRoot, highlightState)
 
 let rootPos = { x: 0, y: 0 }
 let rootSize = { x: 0, y: 0 }
@@ -624,35 +655,7 @@ let rootUpdatesLeft = 0
 let rootOnRight = false
 
 function updateHighlights(rects) {
-    for (const elem of highlightElems) {
-        highlightRoot.removeChild(elem)
-    }
-
-    highlightElems = []
-
-    for (const rect of rects) {
-        const elem = document.createElement("div")
-
-        let centerX = (rect.min[0] + rect.max[0]) * 0.5
-        let centerY = (rect.min[1] + rect.max[1]) * 0.5
-        let extentX = (rect.max[0] - rect.min[0]) * 0.5
-        let extentY = (rect.max[1] - rect.min[1]) * 0.5
-
-        extentX *= 1.3;
-        extentY *= 1.3;
-
-        extentY = extentX = Math.max(extentX, extentY)
-
-        elem.style.position = "absolute"
-        elem.style.left = `${centerX - extentX}px`
-        elem.style.top = `${centerY - extentY}px`
-        elem.style.width = `${extentX * 2}px`
-        elem.style.height = `${extentY * 2}px`
-        elem.className = "highlighter"
-
-        highlightRoot.appendChild(elem)
-        highlightElems.push(elem)
-    }
+    highlightState.rects = rects
 }
 
 function v2clamp(a, min, max) {
