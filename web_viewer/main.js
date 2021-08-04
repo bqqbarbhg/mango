@@ -236,6 +236,13 @@ function KaikuTop() {
     ])
 }
 
+// HACK: Using this until there is an official solution
+function immutable(obj) {
+    return new Proxy(obj, {
+        ownKeys(target) { return [] },
+    })
+}
+
 class Top {
     loadToken = 0
     currentPage = 0
@@ -610,7 +617,7 @@ class Top {
         }
 
         this.lastGoodPage = pageInfo
-        this.state.page = page
+        this.state.page = immutable(page)
     }
 
     mount(root) {
