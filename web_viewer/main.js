@@ -1,5 +1,3 @@
-
-const { h, render, Component, createRef } = preact
 const { h: k, render: kaikuRender, createState, useState } = kaiku
 
 function Radical({ radical }) {
@@ -214,15 +212,36 @@ function getSelectionTarget(page, selection) {
     }
 }
 
-function KaikuTop({ state }) {
-    return k("div", { className: "top" }, [
+const topState = createState({
+    page: null,
+    hint: null,
+    hintId: 0,
+    translation: "",
+    style: { },
+})
+
+function KaikuTop() {
+    const state = topState
+
+    return k("div", {
+        id: "preact-root",
+        // TODO: Use this if supported
+        // style: state.style,
+        style: {
+            display: () => state.style.display,
+            fontSize: () => state.style.fontSize,
+            width: () => state.style.width,
+            height: () => state.style.height,
+            transform: () => state.style.transform,
+        },
+    },
+    k("div", { className: "top" }, [
         state.hint ? k(Hint, { hint: state.hint, key: state.hintId }) : null,
         state.translation != "" ? k(Translation, { text: state.translation }) : null,
-    ])
+    ]))
 }
 
 class Top {
-    state = null
     loadToken = 0
     currentPage = 0
     clickTime = 0
@@ -239,7 +258,7 @@ class Top {
     constructor() {
         const params = new URLSearchParams(window.location.search)
         this.doc = params.get("doc")
-        this.state = createState({ page: null, hint: null, hintId: 0, translation: "" })
+        this.state = topState
 
         pageImage.addEventListener("mousedown", this.onImageMouseDown)
         pageImage.addEventListener("mousemove", this.onImageMouseMove)
@@ -596,16 +615,16 @@ class Top {
         }
 
         this.lastGoodPage = pageInfo
-        this.setState({ page: page })
+        this.state.page = page
     }
 
     mount(root) {
-        kaikuRender(k(KaikuTop, { state: this.state }), root, this.state)
+        kaikuRender(k(KaikuTop), root, topState)
     }
 }
 
 const highlightRoot = document.getElementById("highlight-root")
-const preactRoot = document.getElementById("preact-root")
+const preactContainer = document.getElementById("preact-container")
 
 function HighlightRect({ rect })
 {
@@ -641,7 +660,6 @@ kaikuRender(k(HighlightTop), highlightRoot, highlightState)
 
 let rootPos = { x: 0, y: 0 }
 let rootSize = { x: 0, y: 0 }
-let rootVisible = false
 let rootFontSize = 0
 
 let rootUpdatesLeft = 0
@@ -692,10 +710,7 @@ function updateRootImp()
         rootOnRight = false
     }
 
-    if (rootVisible != rootTarget.visible) {
-        rootVisible = rootTarget.visible
-        preactRoot.style.display = rootTarget.visible ? "block" : "none";
-    }
+    topState.style.display = rootTarget.visible ? "block" : "none";
 
     let targetPos
     if (rootOnRight) {
@@ -726,17 +741,17 @@ function updateRootImp()
         const fontSize = (elemSize.y / 14.0);
         if (Math.abs(rootFontSize - fontSize) > 1.0) {
             rootFontSize = fontSize | 0
-            preactRoot.style.fontSize = `${rootFontSize}px`
+            topState.style.fontSize = `${rootFontSize}px`
         }
 
-        preactRoot.style.width = `${elemSize.x}px`
-        preactRoot.style.height = `${elemSize.y}px`
+        topState.style.width = `${elemSize.x}px`
+        topState.style.height = `${elemSize.y}px`
     }
 
     if (deltaX*deltaX + deltaY*deltaY > minDelta*minDelta) {
         rootPos.x = pos.x
         rootPos.y = pos.y
-        preactRoot.style.transform = `translate(${pos.x}px, ${pos.y}px)`
+        topState.style.transform = `translate(${pos.x}px, ${pos.y}px)`
     }
 
     if (--rootUpdatesLeft > 0) {
@@ -748,17 +763,17 @@ function updateRootImp()
 function updateRoot()
 {
     if (rootUpdatesLeft == 0) {
-        rootUpdatesLeft = 100
+        rootUpdatesLeft = 20
         updateRootImp()
     } else {
-        rootUpdatesLeft = 100
+        rootUpdatesLeft = 20
     }
 }
 
 window.addEventListener("touchmove", updateRoot)
 window.addEventListener("scroll", updateRoot)
-new ResizeObserver(updateRoot).observe(preactRoot)
+new ResizeObserver(updateRoot).observe(preactContainer)
 updateRoot()
 
 // render(h(Top), preactRoot)
-new Top().mount(preactRoot)
+new Top().mount(preactContainer)
