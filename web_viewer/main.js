@@ -75,11 +75,11 @@ function Result({ hintSelectionState, result, key }) {
 
     let conjText = result.conjugation
 
-    let className = "hint-container"
-    if (expand) className += " hint-selected"
-
     return k("div", {
-        className: className,
+        className: {
+            "hint-container": true,
+            "hint-selected": expand,
+        },
         onClick: () => { hintSelectionState.selectedIndex = index },
     }, [
         k("div", { className: "hint-title" }, titleText),
