@@ -1,130 +1,117 @@
 
 const { h, render, Component, createRef } = preact
-const { h: k, render: kaikuRender, createState } = kaiku
+const { h: k, render: kaikuRender, createState, useState } = kaiku
 
 function Radical({ radical }) {
-    return h("div", { class: "radical" },
-        h("img", { class: "radical-image", src: radical.image }),
-        h("div", { class: "radical-text" }, radical.name)
+    return k("div", { className: "radical" },
+        k("img", { className: "radical-image", src: radical.image }),
+        k("div", { className: "radical-text" }, radical.name)
     )
 }
 
 function RadicalList({ radicals }) {
-    return h("div", { class: "radical-list" },
-        radicals.map(r => h(Radical, { radical: r }))
+    return k("div", { className: "radical-list" },
+        radicals.map(r => k(Radical, { radical: r }))
     )
 }
 
-class Result extends Component {
+function Result({ result, expand, onSelect, index }) {
 
-    onClick = (e) => {
-        const { onSelect, index } = this.props
+    const onClick = (e) => {
         onSelect(index)
     }
 
-    render({ result, expand }) {
-        let titleText = ""
+    let titleText = ""
 
-        if (result.kanji.length > 0) {
-            titleText += result.kanji[0].text
-        }
-
-        if (result.kana.length > 0) {
-            if (titleText != "") {
-                titleText += "【" + result.kana[0].text + "】"
-            } else {
-                titleText += result.kana[0].text;
-            }
-        }
-
-        let glossText = ""
-        let maxGloss = 50
-
-        for (const gloss of result.gloss) {
-            if (glossText && glossText.length + gloss.length >= maxGloss && !expand) break
-            if (glossText != "") glossText += ", "
-            glossText += gloss
-        }
-
-        let kanjiText = ""
-        let kanaText = ""
-
-        let wkPart = []
-
-        if (expand) {
-            for (const kanji of result.kanji) {
-                if (kanjiText) kanjiText += ", "
-                kanjiText += kanji.text
-            }
-
-            for (const kana of result.kana) {
-                if (kanaText) kanaText += ", "
-                kanaText += kana.text
-            }
-
-            const wkLists = [
-                result.wk_meaning_mnemonic,
-                result.wk_meaning_hint,
-                result.wk_reading_mnemonic,
-                result.wk_reading_hint,
-            ]
-
-            for (const list of wkLists) {
-                if (!list) continue
-
-                wkPart.push(h("div", { class: "wk-container" },
-                    list.map(({ type, text }) => h("span", { class: `wk-span wk-tag-${type}` }, text))))
-            }
-        }
-
-        let conjText = result.conjugation
-
-        let className = "hint-container"
-        if (expand) className += " hint-selected"
-
-        return h("div", { class: className, onClick: this.onClick }, [
-            h("div", { class: "hint-title" }, titleText),
-            result.radicals ? h(RadicalList, { radicals: result.radicals }) : null,
-            h("div", { class: "hint-gloss" }, glossText),
-            conjText ? h("div", { class: "hint-conjugation" }, conjText) : null,
-            kanjiText ? h("div", null,
-                h("span", { class: "hint-label" }, "Writing: "),
-                h("span", { class: "hint-text" }, kanjiText)) : null,
-            kanaText ? h("div", null,
-                h("span", { class: "hint-label" }, "Reading: "),
-                h("span", { class: "hint-text" }, kanaText)) : null,
-            wkPart
-        ])
+    if (result.kanji.length > 0) {
+        titleText += result.kanji[0].text
     }
+
+    if (result.kana.length > 0) {
+        if (titleText != "") {
+            titleText += "【" + result.kana[0].text + "】"
+        } else {
+            titleText += result.kana[0].text;
+        }
+    }
+
+    let glossText = ""
+    let maxGloss = 50
+
+    for (const gloss of result.gloss) {
+        if (glossText && glossText.length + gloss.length >= maxGloss && !expand) break
+        if (glossText != "") glossText += ", "
+        glossText += gloss
+    }
+
+    let kanjiText = ""
+    let kanaText = ""
+
+    let wkPart = []
+
+    if (expand) {
+        for (const kanji of result.kanji) {
+            if (kanjiText) kanjiText += ", "
+            kanjiText += kanji.text
+        }
+
+        for (const kana of result.kana) {
+            if (kanaText) kanaText += ", "
+            kanaText += kana.text
+        }
+
+        const wkLists = [
+            result.wk_meaning_mnemonic,
+            result.wk_meaning_hint,
+            result.wk_reading_mnemonic,
+            result.wk_reading_hint,
+        ]
+
+        for (const list of wkLists) {
+            if (!list) continue
+
+            wkPart.push(k("div", { class: "wk-container" },
+                list.map(({ type, text }) => k("span", { class: `wk-span wk-tag-${type}` }, text))))
+        }
+    }
+
+    let conjText = result.conjugation
+
+    let className = "hint-container"
+    if (expand) className += " hint-selected"
+
+    return k("div", { className: className, onClick: onClick }, [
+        k("div", { className: "hint-title" }, titleText),
+        result.radicals ? k(RadicalList, { radicals: result.radicals }) : null,
+        k("div", { className: "hint-gloss" }, glossText),
+        conjText ? k("div", { className: "hint-conjugation" }, conjText) : null,
+        kanjiText ? k("div", null,
+            k("span", { className: "hint-label" }, "Writing: "),
+            k("span", { className: "hint-text" }, kanjiText)) : null,
+        kanaText ? k("div", null,
+            k("span", { className: "hint-label" }, "Reading: "),
+            k("span", { className: "hint-text" }, kanaText)) : null,
+        wkPart
+    ])
 }
 
-class Hint extends Component {
-    state = { selectedIndex: -1 }
-
-    onSelect = (index) => {
-        this.setState({ selectedIndex: index })
-    }
-
-    render({ hint }, { selectedIndex }) {
-        return h("div", {class: "top-scroll" },
-            h("div", null, hint.results.map((r, ix) =>
-                h(Result, {
-                    result: r,
-                    expand: selectedIndex == ix,
-                    key: ix,
-                    index: ix,
-                    onSelect: this.onSelect },
-                null))),
-        )
-    }
+function Hint({ hint }) {
+    const state = useState({ selectedIndex: -1 })
+    return k("div", {className: "top-scroll" },
+        k("div", null, hint.results.map((r, ix) =>
+            k(Result, {
+                result: r,
+                expand: state.selectedIndex == ix,
+                key: ix,
+                index: ix,
+                onSelect: () => { state.selectedIndex = ix } },
+            null))))
 }
 
-class Translation extends Component {
-    render({ text }) {
-        return h("div", {class: "top-scroll" },
-            h("div", { class: "translation" }, text),
-        )
-    }
+function Translation({ text }) {
+    return k("div", {className: "top-scroll" },
+        k("div", { className: "translation" }, text),
+    )
 }
 
 const pageImage = document.getElementById("page-image")
@@ -229,8 +216,15 @@ function getSelectionTarget(page, selection) {
     }
 }
 
-class Top extends Component {
-    state = { page: null, hint: null, hintId: 0, translation: "" }
+function KaikuTop({ state }) {
+    return k("div", { className: "top" }, [
+        state.hint ? k(Hint, { hint: state.hint, key: state.hintId }) : null,
+        state.translation != "" ? k(Translation, { text: state.translation }) : null,
+    ])
+}
+
+class Top {
+    state = null
     loadToken = 0
     currentPage = 0
     clickTime = 0
@@ -244,9 +238,10 @@ class Top extends Component {
     dragTouchId = null
     dragTapSymbolIx = -1
 
-    componentDidMount() {
+    constructor() {
         const params = new URLSearchParams(window.location.search)
         this.doc = params.get("doc")
+        this.state = createState({ page: null, hint: null, hintId: 0, translation: "" })
 
         pageImage.addEventListener("mousedown", this.onImageMouseDown)
         pageImage.addEventListener("mousemove", this.onImageMouseMove)
@@ -261,6 +256,12 @@ class Top extends Component {
         let page = parseInt(window.location.hash.substring(1))
         if (isNaN(page)) page = 1
         this.loadPageIndex(page)
+    }
+
+    setState(patch) {
+        for (const key in patch) {
+            this.state[key] = patch[key]
+        }
     }
 
     componentWillUnmount() {
@@ -555,7 +556,6 @@ class Top extends Component {
         }
     }
 
-
     loadPageIndex(pageIndex) {
         pageIndex = pageIndex | 0
         if (this.currentPage == pageIndex) return
@@ -601,12 +601,8 @@ class Top extends Component {
         this.setState({ page: page })
     }
 
-    render({ }, { hint, hintId, translation }) {
-
-        return h("div", { class: "top" }, [
-            hint ? h(Hint, { hint: hint, key: hintId }) : null,
-            translation != "" ? h(Translation, { text: translation }) : null,
-        ])
+    mount(root) {
+        kaikuRender(k(KaikuTop, { state: this.state }), root, this.state)
     }
 }
 
@@ -766,4 +762,5 @@ window.addEventListener("scroll", updateRoot)
 new ResizeObserver(updateRoot).observe(preactRoot)
 updateRoot()
 
-render(h(Top), preactRoot)
+// render(h(Top), preactRoot)
+new Top().mount(preactRoot)
