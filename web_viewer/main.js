@@ -1,4 +1,4 @@
-const { h, render, createState, useState } = kaiku
+const { h, render, createState, useState, immutable } = kaiku
 
 function Radical({ radical }) {
     return h("div", { className: "radical" },
@@ -234,13 +234,6 @@ function KaikuTop() {
             ])
         ])
     ])
-}
-
-// HACK: Using this until there is an official solution
-function immutable(obj) {
-    return new Proxy(obj, {
-        ownKeys(target) { return [] },
-    })
 }
 
 class Top {
