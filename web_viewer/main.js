@@ -15,11 +15,9 @@ function RadicalList({ radicals }) {
     )
 }
 
-function Result({ result, expand, onSelect, index }) {
-
-    const onClick = (e) => {
-        onSelect(index)
-    }
+function Result({ hintSelectionState, result, key }) {
+    const index = key
+    const expand = hintSelectionState.selectedIndex == index
 
     let titleText = ""
 
@@ -80,7 +78,10 @@ function Result({ result, expand, onSelect, index }) {
     let className = "hint-container"
     if (expand) className += " hint-selected"
 
-    return k("div", { className: className, onClick: onClick }, [
+    return k("div", {
+        className: className,
+        onClick: () => { hintSelectionState.selectedIndex = index },
+    }, [
         k("div", { className: "hint-title" }, titleText),
         result.radicals ? k(RadicalList, { radicals: result.radicals }) : null,
         k("div", { className: "hint-gloss" }, glossText),
@@ -96,16 +97,13 @@ function Result({ result, expand, onSelect, index }) {
 }
 
 function Hint({ hint }) {
-    const state = useState({ selectedIndex: -1 })
+    const hintSelectionState = useState({ selectedIndex: -1 })
     return k("div", {className: "top-scroll" },
         k("div", null, hint.results.map((r, ix) =>
             k(Result, {
+                hintSelectionState,
                 result: r,
-                expand: state.selectedIndex == ix,
-                key: ix,
-                index: ix,
-                onSelect: () => { state.selectedIndex = ix } },
-            null))))
+                key: ix }, null))))
 }
 
 function Translation({ text }) {
