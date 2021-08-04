@@ -220,6 +220,14 @@ const topState = createState({
     style: { },
 })
 
+function lambdifyProps(obj) {
+    const res = { }
+    for (const key in obj) {
+        res[key] = () => obj[key]
+    }
+    return res
+}
+
 function KaikuTop() {
     const state = topState
 
@@ -227,13 +235,7 @@ function KaikuTop() {
         id: "preact-root",
         // TODO: Use this if supported
         // style: state.style,
-        style: {
-            display: () => state.style.display,
-            fontSize: () => state.style.fontSize,
-            width: () => state.style.width,
-            height: () => state.style.height,
-            transform: () => state.style.transform,
-        },
+        style: lambdifyProps(state.style),
     },
     k("div", { className: "top" }, [
         state.hint ? k(Hint, { hint: state.hint, key: state.hintId }) : null,
