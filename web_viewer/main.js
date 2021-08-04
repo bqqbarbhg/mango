@@ -1,15 +1,15 @@
-const { h: k, render: kaikuRender, createState, useState } = kaiku
+const { h, render, createState, useState } = kaiku
 
 function Radical({ radical }) {
-    return k("div", { className: "radical" },
-        k("img", { className: "radical-image", src: radical.image }),
-        k("div", { className: "radical-text" }, radical.name)
+    return h("div", { className: "radical" },
+        h("img", { className: "radical-image", src: radical.image }),
+        h("div", { className: "radical-text" }, radical.name)
     )
 }
 
 function RadicalList({ radicals }) {
-    return k("div", { className: "radical-list" },
-        radicals.map(r => k(Radical, { radical: r }))
+    return h("div", { className: "radical-list" },
+        radicals.map(r => h(Radical, { radical: r }))
     )
 }
 
@@ -66,47 +66,47 @@ function Result({ hintSelectionState, result, key }) {
         for (const list of wkLists) {
             if (!list) continue
 
-            wkPart.push(k("div", { class: "wk-container" },
-                list.map(({ type, text }) => k("span", { class: `wk-span wk-tag-${type}` }, text))))
+            wkPart.push(h("div", { class: "wk-container" },
+                list.map(({ type, text }) => h("span", { class: `wk-span wk-tag-${type}` }, text))))
         }
     }
 
     let conjText = result.conjugation
 
-    return k("div", {
+    return h("div", {
         className: {
             "hint-container": true,
             "hint-selected": expand,
         },
         onClick: () => { hintSelectionState.selectedIndex = index },
     }, [
-        k("div", { className: "hint-title" }, titleText),
-        result.radicals ? k(RadicalList, { radicals: result.radicals }) : null,
-        k("div", { className: "hint-gloss" }, glossText),
-        conjText ? k("div", { className: "hint-conjugation" }, conjText) : null,
-        kanjiText ? k("div", null,
-            k("span", { className: "hint-label" }, "Writing: "),
-            k("span", { className: "hint-text" }, kanjiText)) : null,
-        kanaText ? k("div", null,
-            k("span", { className: "hint-label" }, "Reading: "),
-            k("span", { className: "hint-text" }, kanaText)) : null,
+        h("div", { className: "hint-title" }, titleText),
+        result.radicals ? h(RadicalList, { radicals: result.radicals }) : null,
+        h("div", { className: "hint-gloss" }, glossText),
+        conjText ? h("div", { className: "hint-conjugation" }, conjText) : null,
+        kanjiText ? h("div", null,
+            h("span", { className: "hint-label" }, "Writing: "),
+            h("span", { className: "hint-text" }, kanjiText)) : null,
+        kanaText ? h("div", null,
+            h("span", { className: "hint-label" }, "Reading: "),
+            h("span", { className: "hint-text" }, kanaText)) : null,
         wkPart
     ])
 }
 
 function Hint({ hint }) {
     const hintSelectionState = useState({ selectedIndex: -1 })
-    return k("div", {className: "top-scroll" },
-        k("div", null, hint.results.map((r, ix) =>
-            k(Result, {
+    return h("div", {className: "top-scroll" },
+        h("div", null, hint.results.map((r, ix) =>
+            h(Result, {
                 hintSelectionState,
                 result: r,
                 key: ix }, null))))
 }
 
 function Translation({ text }) {
-    return k("div", {className: "top-scroll" },
-        k("div", { className: "translation" }, text),
+    return h("div", {className: "top-scroll" },
+        h("div", { className: "translation" }, text),
     )
 }
 
@@ -212,14 +212,6 @@ function getSelectionTarget(page, selection) {
     }
 }
 
-const topState = createState({
-    page: null,
-    hint: null,
-    hintId: 0,
-    translation: "",
-    style: { },
-})
-
 function lambdifyProps(obj) {
     const res = { }
     for (const key in obj) {
@@ -231,16 +223,17 @@ function lambdifyProps(obj) {
 function KaikuTop() {
     const state = topState
 
-    return k("div", {
-        id: "preact-root",
-        // TODO: Use this if supported
-        // style: state.style,
-        style: lambdifyProps(state.style),
-    },
-    k("div", { className: "top" }, [
-        state.hint ? k(Hint, { hint: state.hint, key: state.hintId }) : null,
-        state.translation != "" ? k(Translation, { text: state.translation }) : null,
-    ]))
+    return h("div", { id: "preact-container" }, [
+        h("div", { id: "highlight-root" }, [
+            h(HighlightTop),
+        ]),
+        h("div", { id: "preact-root", style: lambdifyProps(state.style), }, [
+            h("div", { className: "top" }, [
+                state.hint ? h(Hint, { hint: state.hint, key: state.hintId }) : null,
+                state.translation != "" ? h(Translation, { text: state.translation }) : null,
+            ])
+        ])
+    ])
 }
 
 class Top {
@@ -621,12 +614,11 @@ class Top {
     }
 
     mount(root) {
-        kaikuRender(k(KaikuTop), root, topState)
+        render(h(KaikuTop), root, topState)
     }
 }
 
-const highlightRoot = document.getElementById("highlight-root")
-const preactContainer = document.getElementById("preact-container")
+const kaikuRoot = document.getElementById("kaiku-root")
 
 function HighlightRect({ rect })
 {
@@ -640,7 +632,7 @@ function HighlightRect({ rect })
 
     extentY = extentX = Math.max(extentX, extentY)
 
-    return k("div", {
+    return h("div", {
         className: "highlighter",
         style: {
             position: "absolute",
@@ -652,13 +644,19 @@ function HighlightRect({ rect })
     })
 }
 
+const topState = createState({
+    page: null,
+    hint: null,
+    hintId: 0,
+    translation: "",
+    style: { },
+    highlightRects: [],
+})
+
 function HighlightTop()
 {
-    return k("div", { }, highlightState.rects.map(rect => k(HighlightRect, { rect })))
+    return h("div", { }, topState.highlightRects.map(rect => h(HighlightRect, { rect })))
 }
-
-const highlightState = createState({ rects: [] })
-kaikuRender(k(HighlightTop), highlightRoot, highlightState)
 
 let rootPos = { x: 0, y: 0 }
 let rootSize = { x: 0, y: 0 }
@@ -669,7 +667,7 @@ let rootUpdatesLeft = 0
 let rootOnRight = false
 
 function updateHighlights(rects) {
-    highlightState.rects = rects
+    topState.highlightRects = rects
 }
 
 function v2clamp(a, min, max) {
@@ -774,8 +772,8 @@ function updateRoot()
 
 window.addEventListener("touchmove", updateRoot)
 window.addEventListener("scroll", updateRoot)
-new ResizeObserver(updateRoot).observe(preactContainer)
+new ResizeObserver(updateRoot).observe(kaikuRoot)
 updateRoot()
 
 // render(h(Top), preactRoot)
-new Top().mount(preactContainer)
+new Top().mount(kaikuRoot)
