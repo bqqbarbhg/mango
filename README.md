@@ -24,7 +24,7 @@ write a `mango-desc.json` file by hand or use `mango_init.py` to generate one fo
 the Japanese source pages are in the correct order by filename.
 If you want to have matched manual translations from an English source place them next to the `jp`
 directory in a directory called `en`. These should be mostly in the same order but can have a couple
-of missing/extra pages every now and then.
+of missing/extra/swapped pages every now and then.
 
 ```bash
 # Example of what the file setup should look like
