@@ -7,12 +7,12 @@ import itertools
 from io import BytesIO
 from PIL import Image
 import re
+import sys
 import argparse
 import shutil
 import copy
 import string
 import glob
-import gzip
 import requests
 import base64
 import multiprocessing
@@ -29,11 +29,15 @@ log_name = None
 def log(*values, **kwargs):
     global log_name
     if log_name is None:
-        if not multiprocessing.parent_process():
+        if sys.version_info >= (3,8) and not multiprocessing.parent_process():
             log_name = ""
         else:
-            index = multiprocessing.current_process().name.split("-")[-1].rjust(2, "0")
-            log_name = f"j{index}>"
+            proc_name = multiprocessing.current_process().name
+            if "MainProcess" in proc_name:
+                log_name = ""
+            else:
+                index = proc_name.split("-")[-1].rjust(2, "0")
+                log_name = f"j{index}>"
 
     if log_name:
         print(log_name, *values, flush=True, **kwargs)
@@ -677,6 +681,8 @@ if __name__ == "__main__":
         if os.path.exists("data/english_dicts"):
             log(f"Autodetected: --en-dicts data/english_dicts/*")
             args.en_dicts = [["data/english_dicts/*"]]
+        else:
+            args.en_dicts = []
 
     if not args.wanikani:
         for opt in ["data/wanikani_subjects.json.gz", "data/wanikani_subjects.json"]:

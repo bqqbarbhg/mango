@@ -123,9 +123,10 @@ def match_images(img_a, img_b):
 
     error, size, offset = best
 
-    error = error / (crop_size[0]*crop_size[1]) / (255*255)
-    scale = (size[0] / res_b[0], size[1] / res_b[1])
-    offset = (-(offset[0] - crop_rect[0]) / size[0], -(offset[1] - crop_rect[1]) / size[1])
+    if error < np.Infinity:
+        error = error / (crop_size[0]*crop_size[1]) / (255*255)
+        scale = (size[0] / res_b[0], size[1] / res_b[1])
+        offset = (-(offset[0] - crop_rect[0]) / size[0], -(offset[1] - crop_rect[1]) / size[1])
 
     return error, (scale, offset)
 
@@ -252,7 +253,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip-resize", action="store_true", help="Use cached resized images")
     parser.add_argument("--sure-limit", type=float, default=0.025, help="Limit of error that is sure to be the same")
     parser.add_argument("--error-limit", type=float, default=0.1, help="Maximum error to accept a page")
-    args = parser.parse_args(r"--base W:\Mango-Content\Source\Nagatoro\Vol-1\ --skip-resize --threads 16 --sure-limit 0.06".split())
+    args = parser.parse_args()
 
     mp_queue = multiprocessing.Queue(args.threads)
 
