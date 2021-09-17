@@ -23,7 +23,8 @@ You need to have a directory of Japanese source page images in `${whatever}/jp`.
 write a `mango-desc.json` file by hand or use `mango_init.py` to generate one for you. This will assume
 the Japanese source pages are in the correct order by filename.
 If you want to have matched manual translations from an English source place them next to the `jp`
-directory in a directory called `en`.
+directory in a directory called `en`. These should be mostly in the same order but can have a couple
+of missing/extra pages every now and then.
 
 ```bash
 # Example of what the file setup should look like
@@ -34,8 +35,8 @@ tree content/my_source_data
 | +-- page_no2.jpg
 | +-- ...
 +-- en/
-| +-- first_page.jpg
-| +-- second_page.jpg
+| +-- page_a.jpg
+| +-- page_b.jpg
 | +-- ...
 
 # Generate `my_source_data/mango-desc.json` by matching pages visually
