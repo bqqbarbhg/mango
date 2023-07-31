@@ -39,10 +39,16 @@ mp_queue = None
 mp_pool = None
 mp_threads = 0
 mp_token = 0
+mp_task_amount = None
+mp_task_counter = None
 
-def mp_init(queue):
+def mp_init(queue, task_counter, task_amount):
     global mp_queue
+    global mp_task_counter
+    global mp_task_amount
     mp_queue = queue
+    mp_task_counter = task_counter
+    mp_task_amount = task_amount
 
 def test_size(ctx, size):
     crop_size = ctx.crop_size
@@ -123,9 +129,10 @@ def match_images(img_a, img_b):
 
     error, size, offset = best
 
-    error = error / (crop_size[0]*crop_size[1]) / (255*255)
-    scale = (size[0] / res_b[0], size[1] / res_b[1])
-    offset = (-(offset[0] - crop_rect[0]) / size[0], -(offset[1] - crop_rect[1]) / size[1])
+    if error < np.Infinity:
+        error = error / (crop_size[0]*crop_size[1]) / (255*255)
+        scale = (size[0] / res_b[0], size[1] / res_b[1])
+        offset = (-(offset[0] - crop_rect[0]) / size[0], -(offset[1] - crop_rect[1]) / size[1])
 
     return error, (scale, offset)
 
@@ -137,13 +144,32 @@ def compare_images(path_jp, path_en):
 
             return match_images(img_a, img_b)
 
+class Counter:
+    def __init__(self):
+        self.val = multiprocessing.Value('i', 0)
+
+    def set(self, value):
+        with self.val.get_lock():
+            self.val.value = value
+
+    def increment(self, n=1):
+        with self.val.get_lock():
+            value = self.val.value
+            self.val.value += n
+        return value
+
+    @property
+    def value(self):
+        return self.val.value
+
 def resize_image(src_path, dst_path, height, factor):
     with Image.open(src_path) as img:
+        progress = (mp_task_counter.increment(1) + 1) / mp_task_amount.value
+        print(f"{dst_path} <{progress*100:.1f}%>")
         size = scale_to_height(img.size, height*factor)
         img = img.convert("RGB")
         img = img.filter(ImageFilter.GaussianBlur(min(*img.size) * (0.5 / height)))
         img = img.resize(size)
-        print(dst_path)
         img.save(dst_path)
 
 def main(args):
@@ -159,10 +185,13 @@ def main(args):
 
     height = 150
 
+    print("-- Resizing images...")
     if not args.skip_resize:
         en_tasks = ((s, d, height, 1) for s,d in zip(files_jp, resized_jp))
         jp_tasks = ((s, d, height, 2) for s,d in zip(files_en, resized_en))
-        tasks = itertools.chain(en_tasks, jp_tasks)
+        tasks = list(itertools.chain(en_tasks, jp_tasks))
+        mp_task_counter.set(0)
+        mp_task_amount.set(len(tasks))
         if mp_pool:
             mp_pool.starmap_async(resize_image, tasks).wait()
         else:
@@ -174,8 +203,10 @@ def main(args):
     
     pages = []
 
+    print("-- Matching images...")
     en_base = 0
-    for index, (jp_src, jp_tmp) in enumerate(zip(files_jp, resized_jp)):
+    num_files = min(len(files_jp), len(resized_jp))
+    for jp_index, (jp_src, jp_tmp) in enumerate(zip(files_jp, resized_jp)):
         best_err = args.error_limit
         best_index = -1
         best_transform = None
@@ -194,10 +225,11 @@ def main(args):
                     best_transform = transform
                     if err < args.sure_limit: break
 
+        progress = (jp_index+1) / num_files * 100
         if best_index >= 0:
             en_src = files_en[best_index]
             en_tmp = resized_en[best_index]
-            print(rel(jp_src), rel(en_src))
+            print(rel(jp_src), rel(en_src), f"<{progress:.1f}%>")
 
             scale, offset = best_transform
 
@@ -210,21 +242,21 @@ def main(args):
                 }
             })
 
-            with Image.open(jp_tmp) as img_jp:
-                with Image.open(en_tmp) as img_en:
-                    size_jp = img_jp.size
-                    size_en = (int(img_en.size[0] * scale[0] * 0.5), int(img_en.size[1] * scale[1] * 0.5))
-                    img_en = img_en.resize(size_en)
-                    offset_en = (int(size_en[0] * -offset[0]), int(size_en[1] * -offset[1]))
-                    crop = (offset_en[0], offset_en[1], offset_en[0]+size_jp[0], offset_en[1]+size_jp[1])
-                    img_match = Image.blend(img_jp, img_en.crop(crop), alpha=0.5)
-                    path = os.path.join(temp_dir, f"match_{index:03}.png")
-                    img_match.save(path)
-
+            if args.save_match:
+                with Image.open(jp_tmp) as img_jp:
+                    with Image.open(en_tmp) as img_en:
+                        size_jp = img_jp.size
+                        size_en = (int(img_en.size[0] * scale[0] * 0.5), int(img_en.size[1] * scale[1] * 0.5))
+                        img_en = img_en.resize(size_en)
+                        offset_en = (int(size_en[0] * -offset[0]), int(size_en[1] * -offset[1]))
+                        crop = (offset_en[0], offset_en[1], offset_en[0]+size_jp[0], offset_en[1]+size_jp[1])
+                        img_match = Image.blend(img_jp, img_en.crop(crop), alpha=0.5)
+                        path = os.path.join(temp_dir, f"match_{jp_index:03}.png")
+                        img_match.save(path)
 
             en_base = best_index
         else:
-            print(rel(jp_src))
+            print(rel(jp_src), f"<{progress:.1f}%>")
 
             pages.append({
                 "jp": rel(jp_src),
@@ -252,12 +284,15 @@ if __name__ == "__main__":
     parser.add_argument("--skip-resize", action="store_true", help="Use cached resized images")
     parser.add_argument("--sure-limit", type=float, default=0.025, help="Limit of error that is sure to be the same")
     parser.add_argument("--error-limit", type=float, default=0.1, help="Maximum error to accept a page")
-    args = parser.parse_args(r"--base W:\Mango-Content\Source\Nagatoro\Vol-1\ --skip-resize --threads 16 --sure-limit 0.06".split())
+    parser.add_argument("--save-match", action="store_true", help="Save temporary match images")
+    args = parser.parse_args()
 
     mp_queue = multiprocessing.Queue(args.threads)
+    mp_task_counter = Counter()
+    mp_task_amount = Counter()
 
     if args.threads > 1:
-        with multiprocessing.Pool(args.threads, mp_init, (mp_queue,)) as pool:
+        with multiprocessing.Pool(args.threads, mp_init, (mp_queue, mp_task_counter, mp_task_amount)) as pool:
             mp_pool = pool
             mp_threads = args.threads
             main(args)

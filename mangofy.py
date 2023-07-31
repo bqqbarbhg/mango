@@ -570,7 +570,8 @@ def process_page(jp_image, en_image, en_transform, dst_path, opts):
             "resolution": resolution,
         }
 
-    dst_image = dst_path + ".jpg"
+    _, jp_ext = os.path.splitext(jp_image)
+    dst_image = dst_path + jp_ext
     if not os.path.exists(dst_image) or os.stat(jp_image).st_mtime > os.stat(dst_image).st_mtime:
         log(f"Copying image: {jp_image} -> {dst_image}")
         shutil.copyfile(jp_image, dst_image)
@@ -663,8 +664,13 @@ if __name__ == "__main__":
     parser.add_argument("--wanikani", help="Wanikani subject file")
     parser.add_argument("--threads", type=int, default=1, help="Number of threads to use")
     parser.add_argument("--unsafe-write", action="store_true", help="Write results unsafely")
+    parser.add_argument("--info-only", action="store_true", help="Only generate info and cover")
+    parser.add_argument("--gcp-credentials", help="Google GCP credentials")
 
     args = parser.parse_args()
+
+    if args.gcp_credentials:
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = args.gcp_credentials
 
     if not args.jdict:
         for opt in ["data/jdict.json.gz", "data/jdict.json"]:
@@ -700,7 +706,9 @@ if __name__ == "__main__":
         begin = 0
         end = len(pages)
 
-        if args.range:
+        if args.info_only:
+            begin, end = 0, -1
+        elif args.range:
             if ":" in args.range:
                 s_begin, s_end = args.range.split(":")
                 if s_begin:
@@ -712,15 +720,65 @@ if __name__ == "__main__":
         
         desc_task = DescTask(desc_base, len(pages))
 
+        info = desc.get("info")
+        if info:
+            cover_path = os.path.join(desc_base, info["cover"])
+            cover_image = Image.open(cover_path)
+
+            MAX_WIDTH = 300
+            MAX_HEIGHT = 400
+
+            width, height = cover_image.size
+            aspect = width / height
+            if aspect > MAX_WIDTH / MAX_HEIGHT:
+                if width > MAX_WIDTH:
+                    width = MAX_WIDTH
+                    height = int(width / aspect)
+            else:
+                if height > MAX_HEIGHT:
+                    height = MAX_HEIGHT
+                    width = int(height * aspect)
+            if (width, height) != cover_image.size:
+                cover_image = cover_image.resize((width, height), Image.BICUBIC)
+
+            dst_path = os.path.join(args.o, "cover.jpg")
+            cover_image.save(dst_path, format="JPEG", quality=95)
+
+            image_format = None
+            if len(pages) > 0:
+                _, ext = os.path.splitext(pages[0]["jp"])
+                image_format = ext[1:]
+
+            dst_info = {
+                "title": {
+                    "en": info["title"]["en"],
+                    "jp": info["title"]["jp"],
+                },
+                "volume": info["volume"],
+                "numPages": len(pages),
+                "imageFormat": image_format,
+            }
+
+            info_path = os.path.join(args.o, "info.json")
+            with open_ex(info_path, "wt", encoding="utf-8") as f:
+                json.dump(dst_info, f, indent=1, ensure_ascii=False)
+
+            pass
+
         for index, page in enumerate(pages):
             if not (begin <= index <= end): continue
             tasks.append(PageTask(args.o, page, index, desc_task))
 
     if args.threads > 1:
         with multiprocessing.Pool(args.threads, initialize, (args,)) as pool:
+            ordered_index = 0
             for task in pool.imap_unordered(process_page_task, tasks):
-                log(f"Finished page {task.index+1}/{task.desc.num_pages}")
+                ordered_index += 1
+                prog = ordered_index / task.desc.num_pages * 100
+                log(f"Finished page {task.index+1}/{task.desc.num_pages} <{prog:.1f}%>")
     else:
         initialize(args)
         for task in tasks:
             process_page_task(task)
+            prog = (task.index+1) / task.desc.num_pages * 100
+            log(f"Finished page {task.index+1}/{task.desc.num_pages} <{prog:.1f}%>")
