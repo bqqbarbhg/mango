@@ -4,7 +4,7 @@ import json
 
 parser = argparse.ArgumentParser(description="Download WaniKani subjects")
 parser.add_argument("--api-token", metavar="aaa-bbb-ccc", help="Authorization token for the API")
-parser.add_argument("-o", metavar="wanikani_subjects.json", help="Output path")
+parser.add_argument("-o", default="data/wanikani_subjects.json", metavar="wanikani_subjects.json", help="Output path")
 args = parser.parse_args()
 
 subjects = []

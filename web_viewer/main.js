@@ -576,7 +576,7 @@ class Top {
         history.pushState(null, null, "#" + pageIndex.toString());
 
         let indexStr = pageIndex.toString().padStart(3, "0")
-        let baseName = `${this.doc}/page${indexStr}`
+        let baseName = `/${this.doc}/page${indexStr}`
         this.loadPageImp({ image: baseName + ".jpg", meta: baseName + ".json", index: pageIndex })
     }
 
@@ -606,7 +606,7 @@ class Top {
         // Preload the next image
         {
             let indexStr = (pageInfo.index + 1).toString().padStart(3, "0")
-            this.preloadImage.src = `${this.doc}/page${indexStr}.jpg`
+            this.preloadImage.src = `/${this.doc}/page${indexStr}.jpg`
         }
 
         this.lastGoodPage = pageInfo
