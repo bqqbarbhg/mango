@@ -12,6 +12,7 @@ import traceback
 from PIL import Image
 from io import BytesIO
 import json
+import re
 
 def quote_arg(args):
     if sys.platform == "win32":
@@ -57,6 +58,10 @@ loop = asyncio.new_event_loop()
 g_args = None
 g_settings = None
 g_action_task = None
+g_prev_dst_path = None
+g_dst_path = None
+g_model_paths = []
+g_init_info = { }
 
 pages_en = []
 pages_jp = []
@@ -167,6 +172,8 @@ async def web_socket(request):
             "pagesEn": pages_en,
             "pagesJp": pages_jp,
         },
+        "info": g_init_info,
+        "models": g_model_paths,
     })
 
     if g_settings:
@@ -298,7 +305,7 @@ def save_info(info_forms):
     cover_rel = info["cover"]
     if cover_rel:
         cover_src = os.path.join(g_args.src, cover_rel)
-        copy_cover(cover_src, g_args.o)
+        copy_cover(cover_src, g_dst_path)
 
     chapter_start = info["chapterStart"]
 
@@ -325,11 +332,12 @@ def save_info(info_forms):
             "en": info["titleEn"],
             "jp": info["titleJp"],
         },
+        "volume": info["volume"],
         "startPage": find_page(info["firstPage"]),
         "chapters": [make_chapter(ix, c) for ix, c in enumerate(chapters)],
     }
 
-    dst_path = os.path.join(g_args.o, "mango-info.json")
+    dst_path = os.path.join(g_dst_path, "mango-info.json")
     with open(dst_path, "wt", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
 
@@ -352,8 +360,8 @@ def get_init_commands(opts):
         python_exe = "python3"
 
     if do_upscale:
-        downscale = upscale["downscale"]
-        models = upscale["models"]
+        ratio = upscale["ratio"]
+        model = upscale["model"]
         args = [
             [
                 python_exe,
@@ -367,14 +375,12 @@ def get_init_commands(opts):
                 os.path.join(root, src_jp_2x_path),
             ],
             [
-                "--models",
-                models,
-            ],
-            [
-                "--progress",
+                "--model",
+                model,
             ],
         ]
-        if downscale != 1:
+        if ratio < 2:
+            downscale = ratio / 2.0
             args += [
                 [
                     "--downscale",
@@ -431,7 +437,7 @@ def get_init_commands(opts):
             ],
             [
                 "-o",
-                g_args.o,
+                g_dst_path,
             ],
             [
                 "--gcp-credentials",
@@ -440,6 +446,24 @@ def get_init_commands(opts):
             [
                 "--threads",
                 threads,
+            ],
+        ]
+        args += split_args(ocr.get("args", ""))
+        cmds.append(args)
+
+    copy = opts["copy"]
+    if copy["enabled"]:
+        args = [
+            [
+                python_exe,
+                "mango_copy.py",
+            ],
+            [
+                os.path.join(g_args.src, "mango-desc.json"),
+            ],
+            [
+                "-o",
+                g_dst_path,
             ],
         ]
         args += split_args(ocr.get("args", ""))
@@ -454,13 +478,61 @@ async def run_commands(cmds):
     for cmd in cmds:
         await execute(cmd)
 
+def valid_model(path):
+    return all(os.path.exists(os.path.join(path, p)) for p in [
+        "image.pth", "kanji.pth", "select.pth",
+    ])
+
 if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument("src", help="Source directory")
-    parser.add_argument("-o", required=True, help="Destination directory")
+    parser.add_argument("-o", help="Destination directory")
+    parser.add_argument("-op", help="Destination parent directory, expects the suffix of src to be /Manga/Vol-N")
     g_args = parser.parse_args()
 
-    os.makedirs(g_args.o, exist_ok=True)
+    if g_args.o:
+        g_dst_path = g_args.o
+    elif g_args.op:
+        src_head, src_vol = os.path.split(g_args.src.rstrip("/\\"))
+        src_head, src_name = os.path.split(src_head)
+
+        g_dst_path = os.path.join(g_args.op, src_name, src_vol)
+
+        m = re.match(r"(?i)(vol)-(\d+)", src_vol)
+        if m:
+            vol_str = m.group(1)
+            volume = int(m.group(2))
+            if volume > 0:
+                prev_vol = f"{vol_str}-{volume - 1}"
+                g_prev_dst_path = os.path.join(g_args.op, src_name, prev_vol)
+    else:
+        raise RuntimeError("Need to specify either -o or -op")
+
+    if g_prev_dst_path:
+        prev_info = os.path.join(g_prev_dst_path, "mango-info.json")
+        try:
+            with open(prev_info, "rt", encoding="utf-8") as f:
+                info = json.load(f)
+                last_chapter = max(c.get("index", -1) for c in info["chapters"])
+                title = info.get("title", { })
+                volume = info.get("volume", -1)
+                g_init_info = {
+                    "chapterStart": last_chapter + 1,
+                    "titleEn": title.get("en", ""),
+                    "titleJp": title.get("jp", ""),
+                    "volume": volume + 1,
+                }
+        except FileNotFoundError:
+            pass
+
+    for root, dirs, files in os.walk("models"):
+        for d in dirs:
+            dir_path = os.path.join(root, d)
+            if valid_model(dir_path):
+                g_model_paths.append(dir_path)
+    g_model_paths.sort()
+
+    os.makedirs(g_dst_path, exist_ok=True)
 
     app = web.Application()
     app.add_routes([
@@ -471,8 +543,14 @@ if __name__ == '__main__':
         web.static("/", "wizard"),
     ])
 
-    pages_en = sorted(os.listdir(os.path.join(g_args.src, "en")))
-    pages_jp = sorted(os.listdir(os.path.join(g_args.src, "jp")))
+    def listdir_maybe(path):
+        try:
+            return os.listdir(path)
+        except FileNotFoundError:
+            return []
+
+    pages_en = sorted(listdir_maybe(os.path.join(g_args.src, "en")))
+    pages_jp = sorted(listdir_maybe(os.path.join(g_args.src, "jp")))
 
     async def on_startup(_):
         webbrowser.open("http://localhost:8080")

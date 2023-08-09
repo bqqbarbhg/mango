@@ -17,8 +17,8 @@ function setupFormsDefaults() {
             enabled: false,
             id: "upscale",
             title: "Upscale",
-            downscale: 1.0,
-            models: "data/models",
+            ratio: 2.0,
+            model: "",
             args: "",
         },
         setup: {
@@ -30,9 +30,17 @@ function setupFormsDefaults() {
         },
         ocr: {
             enabled: false,
+            mutex: ["copy"],
             id: "ocr",
             title: "OCR",
             credentials: "data/gcp-credentials.json",
+            args: "",
+        },
+        copy: {
+            enabled: false,
+            mutex: ["ocr"],
+            id: "copy",
+            title: "Copy images",
             args: "",
         },
     }
@@ -79,6 +87,7 @@ const state = createState({
     tooltipId: null,
     tooltipChildren: null,
     tooltipClass: null,
+    modelPaths: [],
 })
 
 const ws = new WebSocket("ws://localhost:8080/ws")
@@ -156,6 +165,12 @@ ws.addEventListener("message", (event) => {
         state.setupForms = msg.settings
     } else if (msg.type === "init") {
         state.data = msg.data
+        for (const key of Object.keys(msg.info)) {
+            state.infoForms.info[key] = msg.info[key]
+        }
+        console.log(msg)
+        state.modelPaths = msg.models
+        state.setupForms.upscale.model = msg.models.at(-1) ?? ""
     }
 });
 
@@ -163,7 +178,13 @@ function Form({ children, form }) {
     const checkboxId = `enable-${form.id}`
     const alwaysEnabled = form.alwaysEnabled ?? false
     const onEnableChange = (e) => {
-        form.enabled = e.target.checked
+        const enable = e.target.checked
+        if (enable && form.mutex) {
+            for (const other of form.mutex) {
+                state.setupForms[other].enabled = false
+            }
+        }
+        form.enabled = enable
     }
     return html`
         <div className=${{
@@ -258,7 +279,7 @@ function NumberInput({ form, prop, label, integer, min, max, children, tooltipCl
     `
 }
 
-function TextInput({ form, prop, label, children, tooltipClass, labelClass, onPaste }) {
+function TextInput({ form, prop, label, children, tooltipClass, labelClass, onPaste, valueSet }) {
     const id = `${form.id}-${prop}`
     const state = useState({
         value: form[prop].toString(),
@@ -282,15 +303,27 @@ function TextInput({ form, prop, label, children, tooltipClass, labelClass, onPa
         }
     }
 
+    const dataListId = valueSet ? `${id}-data` : undefined
+
     return html`
         <div>
             <div className="form-input-parent">
-                <${InputLabel} id=${id} tooltip=${children} tooltipClass=${tooltipClass}>${label}<//>
+                <${InputLabel} id=${id} tooltip=${children} labelClass=${labelClass} tooltipClass=${tooltipClass}>${label}<//>
                 <input id=${id} type="text" className=${{
                         "form-input": true,
                         "bad": state.bad,
-                    }} value=${state.value} onInput=${onInput} onPaste=${onPaste} />
+                    }}
+                    value=${state.value}
+                    onInput=${onInput}
+                    onPaste=${onPaste}
+                    list=${dataListId}
+                    />
             </div>
+            ${valueSet ? html`
+                <datalist id=${dataListId}>
+                    ${valueSet.map(v => html`<option value=${v} />`)}
+                </datalist>
+            ` : null}
         </div>
     `
 }
@@ -391,15 +424,16 @@ function UpscaleForm() {
             <p className="form-info">
                 Upscale source images to 2x size.
             </p>
-            <${NumberInput} form=${form} prop="downscale" label="Downscale" min=0.01 max=1>
-                <p>Downscale to apply after upscaling to 2x</p>
-                <p>Default of 1 results in twice the size of the source image, and for example value of 0.75 results in 1.5x upscaling from the original</p>
+            <${TextInput} form=${form} prop="model" label="Model" valueSet=${state.modelPaths}>
+                <p>Path to model weights.</p>
             <//>
-            <${TextInput} form=${form} prop="models" label="Models">
-                <p>Path to model weights</p>
+            <${NumberInput} form=${form} prop="ratio" label="Ratio" min=0.01 max=2>
+                <p>Upscaling ratio to use.</p>
+                <p><strong>Warning:</strong> Using any ratio below 2x is done via downscaling the output, possibly reducing quality!</p>
             <//>
             <${ArgsInput} form=${form}>
                 <${Arg} name="--tile-size">Size of the tiles used to process<//>
+                <${Arg} name="--vis-model">Visualize which model was used per-pixel<//>
             <//>
         <//>
     `
@@ -442,6 +476,20 @@ function OcrForm() {
                 <${Arg} name="--en-dicts path">English word list files<//>
                 <${Arg} name="--wanikani path.json">Wanikani subject file<//>
                 <${Arg} name="--unsafe-write">Write results unsafely<//>
+            <//>
+        <//>
+    `
+}
+
+function CopyForm() {
+    const form = state.setupForms.copy
+    return html`
+        <${Form} form=${form}>
+            <p className="form-info">
+                Copy page images without performing any OCR.
+            </p>
+            <${ArgsInput} form=${form}>
+                <${Arg} name="--range begin:end">Proecss a range of pages<//>
             <//>
         <//>
     `
@@ -492,6 +540,7 @@ function TopForm() {
                 <${UpscaleForm} />
                 <${SetupForm} />
                 <${OcrForm} />
+                <${CopyForm} />
                 <${FormButtons} />
             </div>
         </div>
@@ -667,15 +716,15 @@ function InfoForm() {
             <${NumberInput} form=${form} prop="volume" label="Volume" integer=true min=0>
                 <p>Volume number in the series.</p>
             <//>
+            <${NumberInput} form=${form} prop="chapterStart" label="Chapter start" integer=true min=0>
+                <p>Number of the first chapter contained in this volume.</p>
+            <//>
             <${ImageInput} form=${form} prop="cover" label="Cover">
                 <p>Relative path to the cover image.</p>
             <//>
             <${ImageInput} form=${form} prop="firstPage" label="First page">
                 <p>Relative path to the first page with actual content.</p>
                 <p>Exclude covers and inserts for this.</p>
-            <//>
-            <${NumberInput} form=${form} prop="chapterStart" label="Chapter start" integer=true min=0>
-                <p>Number of the first chapter contained in this volume.</p>
             <//>
         <//>
     `
