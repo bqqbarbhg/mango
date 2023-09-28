@@ -179,15 +179,103 @@ class UpSelect_7_V2(nn.Module):
         y = torch.ones_like(y) * 0.5 - y * 0.55
         return y
 
+class UpSelect_7_L(nn.Module):
+    # Adapted from U-Net
+    def __init__(self):
+        super().__init__()
+
+        features = 64
+
+        self.Downscale = nn.Sequential(
+            # Conv 1  256x256
+            nn.Conv2d(1, 32, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+
+            # Conv 2  128x128
+            nn.MaxPool2d(2),
+            nn.Conv2d(32, features, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(features, features*2, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*2),
+            nn.ReLU(inplace=True),
+
+            # Conv 3  64x64
+            nn.MaxPool2d(2),
+            nn.Conv2d(features*2, features*4, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(features*4, features*4, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*4),
+            nn.ReLU(inplace=True),
+        )
+
+        self.Dip1 = nn.Sequential(
+            # Conv 4 32x32
+            nn.MaxPool2d(2),
+            nn.Conv2d(features*4, features*4, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(features*4, features*4, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*4),
+            nn.ReLU(inplace=True),
+        )
+
+        self.Dip2 = nn.Sequential(
+            # Conv 5 16x16
+            nn.MaxPool2d(2),
+            nn.Conv2d(features*4, features*8, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*8),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(features*8, features*8, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*8),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(features*8, features*4, 4, 2, 1),
+        )
+
+        self.Up1 = nn.Sequential(
+            nn.ConvTranspose2d(features*8, features*4, 4, 2, 1),
+        )
+
+        self.Final = nn.Sequential(
+            nn.Conv2d(features*8, features*4, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(features*4, features*4, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(features*4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(features*4, 2, 1, 1, 0),
+        )
+
+    def forward(self, x):
+        x_in = torch.ones_like(x) - x
+        down = self.Downscale.forward(x_in)
+        dip1 = self.Dip1.forward(down)
+        dip2 = self.Dip2.forward(dip1)
+        up1_in = torch.cat((dip2, dip1), -3)
+        up1 = self.Up1.forward(up1_in)
+        final_in = torch.cat((down, up1), -3)
+        final = self.Final.forward(final_in)
+        return final
+
+
 class Upscaler:
     def __init__(self, model_path, tile_size=256, vis_model=False):
         self.vis_model = vis_model
 
         map_location = torch.device(device)
 
-        self.model_select = UpSelect_7_V2().to(device)
+        self.model_select = UpSelect_7().to(device)
         self.model_select.load_state_dict(torch.load(os.path.join(model_path, "select.pth"), map_location))
         self.model_select.eval()
+
+        self.model_select2 = UpSelect_7_L().to(device)
+        self.model_select2.load_state_dict(torch.load(os.path.join(model_path, "select2.pth"), map_location))
+        self.model_select2.eval()
 
         self.model_image = UpConv_7().to(device)
         self.model_image.load_state_dict(torch.load(os.path.join(model_path, "image.pth"), map_location))
@@ -207,7 +295,19 @@ class Upscaler:
         self.alignment = alignment
         self.tile_size = align_up(tile_size, alignment)
 
-    def upscale_region(self, x):
+    def upscale_select2(self, x):
+        normalization = 1.0 / 255.0
+        x = x.to(torch.float32) * normalization
+        x = x.to(device)
+        x = torch.unsqueeze(x, 0)
+        pred = self.model_select2(x)
+        pred = torch.softmax(pred, dim=-3)
+        pred = torch.squeeze(pred, 0)
+        pred = pred[1:2, ...]
+        pred = torch.clamp(pred, 0, 1)
+        return pred
+
+    def upscale_region(self, x, sel2):
         normalization = 1.0 / 255.0
 
         x = x.to(torch.float32) * normalization
@@ -219,22 +319,25 @@ class Upscaler:
         pred = self.model_select(x)
 
         xh, xw = x.shape[2], x.shape[3]
-        Xs = TVF.resize(x, (xh, xw), TVT.InterpolationMode.BICUBIC, antialias=True)
+        # Xs = TVF.resize(x, (xh, xw), TVT.InterpolationMode.BICUBIC, antialias=True)
 
         h = min(Xa.shape[2], Xb.shape[2], pred.shape[2])
         w = min(Xa.shape[3], Xb.shape[3], pred.shape[3])
 
         Xa = TVF.center_crop(Xa, (h, w))
         Xb = TVF.center_crop(Xb, (h, w))
-        Xs = TVF.center_crop(Xs, (h, w))
+        # Xs = TVF.center_crop(Xs, (h, w))
         pred = TVF.center_crop(pred, (h, w))
+        sel2 = TVF.center_crop(sel2, (h, w))
 
         pred = torch.clamp(pred, 0, 1)
+        pred[:, 0:1, :, :] *= torch.unsqueeze(sel2, 0)
         pred_t = pred[:, 0:1, :, :]
-        pred_s = pred[:, 1:2, :, :]
+        pred_s = torch.ones_like(pred_t)
+        pred = torch.cat([pred_t, pred_s], dim=1)
 
         Xp = Xa * (1.0 - pred_t) + Xb * pred_t
-        Xp = Xs * (1.0 - pred_s) + Xp * pred_s
+        # Xp = Xs * (1.0 - pred_s) + Xp * pred_s
 
         pred = torch.squeeze(pred, 0)
         Xp = torch.squeeze(Xp, 0)
@@ -261,6 +364,12 @@ class Upscaler:
             if self.vis_model:
                 pred_pad = torch.zeros(2, pad_height * 2, pad_width * 2) 
 
+            half_y, half_x = pad_height // 2, pad_width // 2
+            image_half = TVT.Resize((half_y, half_x), TVT.InterpolationMode.BICUBIC, antialias=True)(image_pad)
+
+            select2_half = self.upscale_select2(image_half)
+            select2 = TVT.Resize((pad_height * 2, pad_width * 2), antialias=True)(select2_half)
+
             advance = self.tile_size - pad
             assert advance > 0
             for start_y in range(0, pad_height, advance):
@@ -268,8 +377,9 @@ class Upscaler:
                     end_y = min(start_y + tile_size, pad_height)
                     end_x = min(start_x + tile_size, pad_width)
 
+                    select2_region = select2[:, start_y*2:end_y*2, start_x*2:end_x*2]
                     region = image_pad[:, start_y:end_y, start_x:end_x]
-                    up_region, pred_region = self.upscale_region(region)
+                    up_region, pred_region = self.upscale_region(region, select2_region)
 
                     _, lo_h, lo_w = region.shape
                     _, hi_h, hi_w = up_region.shape

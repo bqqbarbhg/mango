@@ -466,7 +466,21 @@ def get_init_commands(opts):
                 g_dst_path,
             ],
         ]
-        args += split_args(ocr.get("args", ""))
+        args += split_args(copy.get("args", ""))
+        cmds.append(args)
+
+    compress = opts["compress"]
+    if compress["enabled"]:
+        args = [
+            [
+                python_exe,
+                "mango_compress.py",
+            ],
+            [
+                g_dst_path,
+            ],
+        ]
+        args += split_args(compress.get("args", ""))
         cmds.append(args)
 
     return cmds

@@ -10,8 +10,8 @@ if __name__ == "__main__":
 
     volumes = []
     for root, dirs, files in os.walk(args.path):
-        if "info.json" in files:
-            path = os.path.join(root, "info.json")
+        if "mango-info.json" in files:
+            path = os.path.join(root, "mango-info.json")
             with open_ex(path, "rb") as f:
                 info = json.load(f)
             rel_path = os.path.relpath(root, args.path).replace("\\", "/")

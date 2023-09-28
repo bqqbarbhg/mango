@@ -43,6 +43,12 @@ function setupFormsDefaults() {
             title: "Copy images",
             args: "",
         },
+        compress: {
+            enabled: false,
+            id: "compress",
+            title: "Compress images",
+            args: "",
+        },
     }
 }
 
@@ -495,6 +501,22 @@ function CopyForm() {
     `
 }
 
+function CompressForm() {
+    const form = state.setupForms.compress
+    return html`
+        <${Form} form=${form}>
+            <p className="form-info">
+                Compress result images to GPU friendly format.
+            </p>
+            <${ArgsInput} form=${form}>
+                <${Arg} name="--exe">Encoder executable<//>
+                <${Arg} name="--skip-compress">Skip image compression<//>
+                <${Arg} name="--skip-pack">Skip image packing<//>
+            <//>
+        <//>
+    `
+}
+
 function FormButtons() {
 
     const onReset = () => {
@@ -541,6 +563,7 @@ function TopForm() {
                 <${SetupForm} />
                 <${OcrForm} />
                 <${CopyForm} />
+                <${CompressForm} />
                 <${FormButtons} />
             </div>
         </div>
